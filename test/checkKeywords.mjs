@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { readdir, readFile } from 'node:fs/promises';
 import { Jimp } from 'jimp';
 import { locateKeyword } from '../src/pipeline/locateKeyword.js';
-import { pickOcrProvider, pickVisionFallback } from './providers.mjs';
+import { pickOcrProvider, pickVisionFallback, cacheOcr } from './providers.mjs';
 import { drawSetOfMark } from '../src/matching/setOfMark.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -39,13 +39,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function getArg(name) {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : null;
-}
-
-// Wraps a provider's detectText result so it's computed once and reused —
-// running the full OCR pass again per keyword would be ~2-6s x N keywords
-// for no benefit, since the underlying screenshot never changes mid-report.
-function cacheOcr(realOcr, cached) {
-  return { name: realOcr.name, async detectText() { return cached; } };
 }
 
 async function checkOne(imagePath, keywordsPath) {

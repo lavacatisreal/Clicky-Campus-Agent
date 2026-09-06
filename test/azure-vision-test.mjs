@@ -11,6 +11,7 @@ import { Jimp } from 'jimp';
 import { generateFixture } from './generateFixture.mjs';
 import { createAzureVisionOcrProvider } from '../src/providers/azureVisionOcr.js';
 import { locateKeyword } from '../src/pipeline/locateKeyword.js';
+import { cacheOcr } from './providers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,11 +29,12 @@ const meta = await Jimp.read(fixturePath);
 const image = { path: fixturePath, width: meta.bitmap.width, height: meta.bitmap.height };
 
 console.log('[vision-test] calling Azure AI Vision (Read OCR)...');
-const ocr = createAzureVisionOcrProvider({
+const realOcr = createAzureVisionOcrProvider({
   endpoint: process.env.AZURE_VISION_ENDPOINT,
   apiKey: process.env.AZURE_VISION_KEY,
 });
-const ocrResult = await ocr.detectText(image);
+const ocrResult = await realOcr.detectText(image); // the only real API call this script makes
+const ocr = cacheOcr(realOcr, ocrResult); // reused below so locateKeyword doesn't call the API again
 const lineCount = ocrResult.items.filter((i) => i.level === 'line').length;
 console.log(`[vision-test] OK — Azure detected ${lineCount} lines of text on the test screenshot`);
 

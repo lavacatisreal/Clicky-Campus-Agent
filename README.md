@@ -515,6 +515,27 @@ npm run test:azure
 **兩支腳本都能用的排查方式**：如果某一步失敗，錯誤訊息會直接印出 Azure 回傳的 HTTP
 狀態碼跟原始錯誤內容（例如 401 通常是金鑰貼錯、404 常是 endpoint 打錯），照訊息排查即可。
 
+### 6.5 確認 Azure API 實際被呼叫了幾次
+
+**權威答案在 Azure Portal，不要自己用猜的**：登入 [portal.azure.com](https://portal.azure.com) →
+進到你的 Azure AI services 資源 → 左側選單「**Metrics / 度量**」→ Metric 選
+**「Total Calls」**，這是 Azure 官方計費用的實際數字，F0 免費層每月上限 5000 次，可以直接
+對照確認還剩多少額度。
+
+**本機這幾支腳本各會打幾次 Azure Vision**（已修正過重複呼叫的問題）：
+
+| 指令 | 每次執行實際打幾次 Azure AI Vision |
+|---|---|
+| `npm run test:azure-vision` | 1 次 |
+| `npm run test:azure` | 1 次（另外還會打 1 次 Azure OpenAI，如果那三個變數也填了） |
+| `npm run test:keywords`（`--all`，四個頁面） | 4 次（每個 fixture 各 1 次，`test/providers.mjs` 的 `cacheOcr()` 確保同一張圖裡不管查幾個關鍵字都只呼叫一次 API，結果重複使用） |
+| `npm run demo -- --keyword "X"` | 1 次 |
+
+**補充**：`test/azure-vision-test.mjs` 跟 `test/azure-connection-test.mjs` 原本各自多打了
+1–2 次沒必要的 Azure Vision 請求（同一張圖被 `locateKeyword()` 內部又重新呼叫一次 OCR），
+已經改成跟 `checkKeywords.mjs` 一樣、共用 `test/providers.mjs` 裡的 `cacheOcr()`，同一張圖
+在同一次執行裡保證只打一次 API。
+
 ## 7. 下一階段還沒做的事（有意先不做）
 
 - 真正串上 Azure AI Vision / Azure OpenAI 並在真實登入後的 Portal / iNCU / 選課系統頁面上

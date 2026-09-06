@@ -36,6 +36,14 @@ function stubVisionFallback() {
   };
 }
 
+// Wraps an already-fetched detectText() result so it can be reused across
+// multiple locateKeyword() calls against the same image without re-hitting
+// the OCR API each time — each real call counts against the Azure quota,
+// so this matters once a script queries more than one keyword per image.
+export function cacheOcr(realOcr, cachedResult) {
+  return { name: realOcr.name, async detectText() { return cachedResult; } };
+}
+
 export function pickVisionFallback() {
   if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_DEPLOYMENT) {
     return {

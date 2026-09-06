@@ -6,12 +6,13 @@
 //   node test/run.mjs --keyword "登入 Portal"
 //   node test/run.mjs --keyword "忘記密碼"
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Jimp } from 'jimp';
 import { generateFixture } from './generateFixture.mjs';
-import { createTesseractOcrProvider } from '../src/providers/tesseractOcr.js';
 import { createAzureOpenAiVisionProvider } from '../src/providers/azureOpenAiVision.js';
 import { locateKeyword } from '../src/pipeline/locateKeyword.js';
+import { pickOcrProvider } from './providers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +29,8 @@ const fixturePath = customImage
 
 if (customImage) {
   console.log(`[run] using provided screenshot: ${fixturePath}`);
+} else if (existsSync(fixturePath)) {
+  console.log(`[run] reusing existing fixture screenshot: ${fixturePath}`);
 } else {
   console.log(`[run] generating fixture screenshot (NCU portal login mockup)...`);
   await generateFixture(fixturePath);
@@ -36,7 +39,8 @@ if (customImage) {
 const meta = await Jimp.read(fixturePath);
 const image = { path: fixturePath, width: meta.bitmap.width, height: meta.bitmap.height };
 
-const ocr = createTesseractOcrProvider({ lang: 'chi_tra+eng' });
+const { provider: ocr, backend } = pickOcrProvider();
+console.log(`[run] OCR backend: ${backend}`);
 
 let visionFallback;
 if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_DEPLOYMENT) {

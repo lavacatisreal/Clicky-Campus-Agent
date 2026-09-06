@@ -9,6 +9,7 @@
 // (Azure AI Vision misses that button's white-on-blue text, same as the
 // local Tesseract run did).
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Jimp } from 'jimp';
 import { generateFixture } from './generateFixture.mjs';
@@ -34,7 +35,7 @@ if (missing.length) {
 }
 
 const fixturePath = path.join(__dirname, 'fixtures', 'portal-mockup.png');
-await generateFixture(fixturePath);
+if (!existsSync(fixturePath)) await generateFixture(fixturePath);
 const meta = await Jimp.read(fixturePath);
 const image = { path: fixturePath, width: meta.bitmap.width, height: meta.bitmap.height };
 

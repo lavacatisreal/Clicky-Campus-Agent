@@ -27,40 +27,13 @@ import { fileURLToPath } from 'node:url';
 import { readdir, readFile } from 'node:fs/promises';
 import { Jimp } from 'jimp';
 import { locateKeyword } from '../src/pipeline/locateKeyword.js';
-import { createTesseractOcrProvider } from '../src/providers/tesseractOcr.js';
-import { createAzureOpenAiVisionProvider } from '../src/providers/azureOpenAiVision.js';
+import { pickOcrProvider, pickVisionFallback } from './providers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function getArg(name) {
   const i = process.argv.indexOf(`--${name}`);
   return i >= 0 ? process.argv[i + 1] : null;
-}
-
-function makeStubVisionFallback() {
-  return {
-    name: 'stub-vision (placeholder — proves routing only, not real accuracy)',
-    async locate({ keyword }) {
-      return {
-        matches: [{ text: keyword, boundingBox: { x: 0, y: 0, width: 0, height: 0 }, confidence: 0, matchType: 'llm-direct (stub)' }],
-        raw: {},
-      };
-    },
-  };
-}
-
-function makeVisionFallback() {
-  if (process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_DEPLOYMENT) {
-    return {
-      provider: createAzureOpenAiVisionProvider({
-        endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-        apiKey: process.env.AZURE_OPENAI_KEY,
-        deployment: process.env.AZURE_OPENAI_DEPLOYMENT,
-      }),
-      isReal: true,
-    };
-  }
-  return { provider: makeStubVisionFallback(), isReal: false };
 }
 
 // Wraps a provider's detectText result so it's computed once and reused —
@@ -75,12 +48,14 @@ async function checkOne(imagePath, keywordsPath) {
   const meta = await Jimp.read(imagePath);
   const image = { path: imagePath, width: meta.bitmap.width, height: meta.bitmap.height };
 
-  const realOcr = createTesseractOcrProvider({ lang: 'chi_tra+eng' });
+  const { provider: realOcr, backend: ocrBackend } = pickOcrProvider();
   const ocrResult = await realOcr.detectText(image);
   const ocr = cacheOcr(realOcr, ocrResult);
-  const { provider: visionFallback, isReal } = makeVisionFallback();
+  const { provider: visionFallback, backend: fallbackBackend } = pickVisionFallback();
 
-  console.log(`\n=== ${path.basename(imagePath)} (${keywords.length} keywords, fallback: ${isReal ? 'REAL Azure OpenAI' : 'stub placeholder'}) ===`);
+  console.log(
+    `\n=== ${path.basename(imagePath)} (${keywords.length} keywords, OCR: ${ocrBackend}, fallback: ${fallbackBackend}) ===`
+  );
 
   let ocrHits = 0;
   let fallbackHits = 0;
@@ -90,14 +65,22 @@ async function checkOne(imagePath, keywordsPath) {
     const ocrOnly = await locateKeyword({ image, keyword }, { ocr });
     const withFallback = await locateKeyword({ image, keyword }, { ocr, visionFallback });
 
-    const ocrCol = ocrOnly.found
+    // ocrOnly.found is true even for a low-confidence guess (source: 'none') —
+    // locateKeyword always surfaces its best candidate so callers have
+    // something to inspect. Only source: 'ocr' means "confident enough to
+    // trust without a second opinion"; treat anything else as NOT resolved
+    // by OCR alone, even if a (weak/imprecise) candidate exists.
+    const ocrConfident = ocrOnly.source === 'ocr';
+    const ocrCol = ocrConfident
       ? `OCR: FOUND (${ocrOnly.primaryMatch.confidence.toFixed(2)})`
-      : 'OCR: not found';
+      : ocrOnly.found
+        ? `OCR: weak match only (${ocrOnly.primaryMatch.confidence.toFixed(2)}, low precision)`
+        : 'OCR: not found';
     const fallbackCol = withFallback.found ? `with fallback: FOUND via ${withFallback.source}` : 'with fallback: NOT FOUND ⚠️';
 
-    console.log(`  ${keyword.padEnd(20, '　')} ${ocrCol.padEnd(22)} | ${fallbackCol}`);
+    console.log(`  ${keyword.padEnd(20, '　')} ${ocrCol.padEnd(38)} | ${fallbackCol}`);
 
-    if (ocrOnly.found) ocrHits++;
+    if (ocrConfident) ocrHits++;
     else if (withFallback.found) fallbackHits++;
     else unresolved++;
   }

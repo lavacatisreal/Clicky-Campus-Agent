@@ -238,9 +238,14 @@ npm run test:nav-fallback
 [nav-fallback-demo] PASS — nav-bar keywords correctly routed to the vision fallback with no special-case detection needed
 ```
 
-（座標 `(255, 94)` 是 stub 寫死的假值，只是用來證明「轉接有發生」，不是真的定位結果——
-等接上真的 Azure OpenAI 金鑰、跑 `npm run test:azure` 之後，這個位置就會換成 GPT-4o
-實際看圖判斷出來的座標。）
+（座標 `(255, 94)` 是 stub 寫死的假值，只是用來證明「轉接有發生」，不是真的定位結果。）
+
+> **更新（接上真的 Azure AI Vision 後）**：這個示範故意用 Tesseract 而不是 Azure，因為
+> 它需要一個「本機 OCR 保證找不到」的案例才能在沒有雲端金鑰時也能重現。接上真的 Azure AI
+> Vision 之後，實測發現「課程查詢」「登入系統」這兩個關鍵字其實**直接被 Azure OCR 找到了**
+> （見 4.4），Tesseract 找不到純粹是它自己的版面分析能力比較弱，不代表這類元件本質上一定
+> 要靠 LLM——這支示範現在的意義純粹是「證明轉接機制本身沒問題」，不是「證明分頁式導覽列
+> 一定需要 vision fallback」。真正還需要 vision fallback 的案例，見 4.4 的麵包屑連結問題。
 
 如果之後真的想要更進一步優化（**目前不建議花時間做，因為現有架構已經正確處理了**）：
 可以額外加一個「影像層面的區域偵測」，找出畫面上「OCR 完全沒讀到任何文字、但夾在兩塊
@@ -289,40 +294,73 @@ node test/checkKeywords.mjs --image test/fixtures/course-announce.png --keywords
      正常現象，是 `locateKeyword.js` 的轉接邏輯本身出了 bug，要直接去查那支檔案，不是去
      調 OCR 參數。
 
-## 5. 換成正式雲端版本
+### 4.4 接上真的 Azure AI Vision 之後的完整重測結果
 
-見 [Azure 服務串接流程](#6-azure-服務串接流程)。申請好資源、填完 `.env` 後執行：
+Part 1（見 §6.2）建好 Azure AI Vision 資源、填完 `.env` 後，`pickOcrProvider()`
+（`test/providers.mjs`）會自動偵測到 `AZURE_VISION_*` 環境變數、把兩個 fixture 全部
+改用真的 Azure Read OCR，不用改任何程式碼。重跑 `npm run test:keywords`：
 
-```bash
-npm run test:azure
+```
+=== course-announce.png：15/16 found by OCR directly, 1/16 needed the vision fallback, 0/16 unresolved ===
+=== portal-mockup.png：10/10 found by OCR directly, 0/10 needed the vision fallback, 0/10 unresolved ===
+=== TOTAL: 26 keywords across 2 pages — 25 via OCR, 1 via fallback, 0 unresolved ===
 ```
 
-這支腳本（`test/azure-connection-test.mjs`）會依序打 Azure AI Vision + Azure OpenAI，
-重跑一次跟本機 demo 一樣的情境（`忘記密碼` 應該靠 OCR 找到、`登入 Portal` 應該靠 LLM
-fallback 找到），一次確認兩個服務都串接正確。確認沒問題後，把 `test/run.mjs` 裡的
-`createTesseractOcrProvider(...)` 換成 `createAzureVisionOcrProvider({...})` 即可
-（`visionFallback` 已經是讀 env 自動啟用 Azure OpenAI，不用改）——這就是介面設計成
-provider 可替換的用意：orchestrator (`locateKeyword.js`) 完全不用改。
+**跟本機 Tesseract 的結果對照，差距很明顯**：
+
+- Tesseract：21/26 靠 OCR 直接找到，「課程查詢」「登入系統」「登入 Portal」（藍底白字按鈕）
+  等 5 個完全找不到。
+- **Azure AI Vision：25/26 靠 OCR 直接、有信心地找到**，包含上面那 5 個 Tesseract 完全
+  抓不到的全部找到了，而且信心值都在 0.95–1.00 之間。這證實了先前的預測：Azure Read API
+  的版面分析／對比色文字辨識能力確實比本機 Tesseract 強很多，「分頁式導覽列」「藍底白字
+  按鈕」這類元件對它來說根本不是問題。
+
+**唯一還需要 fallback 的 1 個案例，是新發現的、更精確的邊界情況**：查詢單一麵包屑連結
+「新選課登記系統」時，Azure 把整條麵包屑「Home >新選課登記系統>相關資訊>課務組公告」
+（四段連結，中間沒有空格分隔）OCR 成同一行文字。這代表如果直接信任這個「行」的座標，
+點下去容易點到隔壁的連結而不是「新選課登記系統」本身——所以 `locateKeyword.js` 正確地把
+它標記為「信心不足」（`matchScore` 只有 0.30，因為關鍵字只佔整行文字的一小部分），轉給
+vision fallback 處理。**這是目前唯一還「活著」、需要 vision fallback 才能精準定位的真實
+案例**——但因為 GPT-4o 目前暫緩（見下方），這個案例現在還沒有真的解法，先記錄下來。
+
+## 5. 目前的串接狀態
+
+| 服務 | 狀態 |
+|---|---|
+| **Azure AI Vision（OCR 主線路）** | ✅ 已串接，`npm run test:azure-vision` 驗證通過，`test:keywords` / `demo` 都已自動改用真的 Azure |
+| **Azure OpenAI（GPT-4o vision fallback）** | ⏸️ **暫緩**——見 §6.3，Azure for Students 訂閱不支援部署 Azure OpenAI，需要先解決訂閱問題才能繼續 |
+
+現況：OCR 主線路已經做到 25/26 關鍵字有信心地直接解出座標（§4.4），對兩個真實系統
+（Portal、選課系統）都驗證過。剩下唯一需要 vision fallback 的案例（麵包屑連結）目前
+暫時沒有真的解法，先記錄在 §4.4，等 Azure OpenAI 訂閱問題解決後再回來處理，不影響
+目前已經很紮實的 OCR 線路繼續往下發展（例如開始跟 DOM 方案整合）。
 
 ## 6. Azure 服務串接流程
 
-這個 pipeline 只用到兩個 Azure 服務：**Azure AI Vision**（OCR 主線路）和 **Azure OpenAI**
-（GPT-4o vision fallback）。以下是從零開始申請、建立、取得金鑰的完整步驟。
+這個 pipeline 設計上會用到兩個 Azure 服務：**Azure AI Vision**（OCR 主線路，已完成）和
+**Azure OpenAI**（GPT-4o vision fallback，目前暫緩）。以下是完整步驟跟目前卡在哪裡。
 
 ### 6.1 準備 Azure 帳號
 
 - 用學校信箱（`@g.ncu.edu.tw`）申請 **Azure for Students**
-  （<https://azure.microsoft.com/free/students/>）：免信用卡、有 100 美元額度，
-  對這個 PoC 綽綽有餘（Azure AI Vision 有免費額度、GPT-4o 用量在開發階段也很低）。
+  （<https://azure.microsoft.com/free/students/>）：免信用卡、有 100 美元額度。
+- **重要更新**：$100 額度可以用來建 Azure AI Vision（有獨立免費層，完全不會扣到額度），
+  但**不能拿來部署 Azure OpenAI（GPT-4o）**——微軟官方政策是 Azure for Students 訂閱
+  已經不允許使用 Azure OpenAI，這個限制看的是「訂閱類型」，跟額度還剩多少無關。詳見 §6.3。
 - **建議額外確認**：InnoServe 這類「Microsoft AI 生態系」組別，主辦單位/微軟有時會
   另外發放 Azure 額度兌換碼給報名隊伍，去比賽官網、報名信、或參賽群組公告確認一下，
-  有的話優先用那個額度，不用先燒學生額度。
+  有的話優先用那個額度，不用先燒學生額度——**這也是解決 Azure OpenAI 訂閱問題的可能
+  途徑之一，如果主辦方發的是企業版訂閱而不是學生版**。
 
-### 6.2 建立 Azure AI Vision 資源（OCR 主線路）
+### 6.2 建立 Azure AI Vision 資源（OCR 主線路）—— ✅ 已完成、已驗證
 
-1. 登入 [portal.azure.com](https://portal.azure.com) → 「建立資源」→ 搜尋
-   **Computer Vision**（或搜尋 **Azure AI services**，這是把 Vision/Language 等多個
-   服務包在一起的資源，之後要加其他 AI 功能比較方便，二選一都可以，介面大同小異）。
+1. 登入 [portal.azure.com](https://portal.azure.com) → 「建立資源」→ 搜尋 **Computer Vision**。
+   **實測踩到的坑**：直接搜「Computer Vision」，搜尋結果幾乎全部是第三方廠商上架的
+   VM/SaaS 服務（例如 pcloudhosting 的「Computer Vision CLI」），不是微軟官方服務。
+   **解法**：用搜尋結果右側的篩選欄位，把「發行者名稱/Publisher name」設成 **Microsoft**，
+   再改搜尋 **`Azure AI services`**（微軟現在把 Computer Vision 等多個 AI 功能包在這個
+   資源底下），應該會看到一張卡片：名稱 **Azure AI services**、發行者 **Microsoft**、
+   說明「讓強大的 API 與您的應用程式相連」——這才是對的，點進去建立。
 2. 建立時填：
    - **Subscription**：你的 Azure for Students 訂閱
    - **Resource group**：新建一個，例如 `ncu-agent-rg`
@@ -334,52 +372,62 @@ provider 可替換的用意：orchestrator (`locateKeyword.js`) 完全不用改�
    - `Endpoint` → 對應 `.env` 的 `AZURE_VISION_ENDPOINT`（形如
      `https://<你的資源名稱>.cognitiveservices.azure.com`）
 
-### 6.3 建立 Azure OpenAI 資源並部署 GPT-4o（vision fallback）
+### 6.3 建立 Azure OpenAI 資源並部署 GPT-4o（vision fallback）—— ⏸️ 暫緩
 
-建議直接走 **Azure AI Foundry**（<https://ai.azure.com>），介面比舊版 Azure OpenAI Studio
-新、部署模型的流程更直覺：
+**實測結果：Azure for Students 訂閱建不了。** 微軟官方政策明確寫「Azure for Students
+已不再允許使用 Azure OpenAI」——這個限制看的是訂閱類型，跟 $100 額度還剩多少無關，就算
+額度全滿也一樣會被擋下來。這不是操作步驟的問題，是資格問題，繼續往下走原本的建立流程
+只會卡在部署那一步。
 
-1. 用同一個 Azure 帳號登入 Azure AI Foundry，建立一個新的 **Project**（會自動幫你建立
-   底層的 Azure OpenAI 資源）。
-2. 左側選單「**Deployments**」→「**+ Deploy model**」→ 選擇 **gpt-4o**（開發/省成本階段
-   也可以先選 **gpt-4o-mini**，vision 能力夠用、便宜很多，等要正式展示再切回 gpt-4o）。
-3. 部署時會要你取一個 **Deployment name**（例如就叫 `gpt-4o`）——**這個名字**就是
-   `.env` 裡的 `AZURE_OPENAI_DEPLOYMENT`，不是模型名稱本身，容易搞混要注意。
-4. 部署的 **Region** 要選有支援該模型的區域（部署頁面下拉選單只會列出可選的，常見像
-   East US、Sweden Central、West US3，會隨時間變動以 portal 顯示為準；台灣目前沒有
-   Azure OpenAI 節點，選哪個對這個 PoC 的延遲影響不大）。
-5. 到專案的「**Keys and Endpoint**」頁面複製：
-   - `Key` → 對應 `.env` 的 `AZURE_OPENAI_KEY`
-   - `Endpoint` → 對應 `.env` 的 `AZURE_OPENAI_ENDPOINT`（形如
-     `https://<你的資源名稱>.openai.azure.com`）
+**目前團隊的決定：先跳過，把 Azure AI Vision 這條 OCR 主線路做穩**（見 §4.4，已經做到
+25/26 關鍵字有信心地直接解出座標）。之後要重新啟用這條線，可行的路徑：
 
-> 補充：少數舊訂閱型態在建立 Azure OpenAI 資源時，畫面會要求先送出一份「Request Access」
-> 申請表單等待審核（過去常見，現在多數 Azure for Students / 一般訂閱已經不需要）。
-> 如果你的 portal 出現這個表單，先送出，通常幾小時到一兩天內會核准，不影響先把
-> Azure AI Vision 那條線路串好測試。
+1. **問學校/指導老師有沒有企業版 Azure 訂閱**——中央大學電算中心或指導老師名下如果有
+   企業版訂閱，直接用那個訂閱建 Azure OpenAI 資源即可，完全不用付費，只是要花時間去問、
+   去申請權限。
+2. **自己的 Azure 帳號加信用卡，升級成 Pay-As-You-Go**——升級後 $100 額度會保留、優先
+   扣款，GPT-4o 這種低用量的開發測試大概率花不到 $100，但這是要放一張真的信用卡在帳號上
+   的財務決定，要自己評估風險。實務上部分人反應 Azure for Students 升級要聯繫 Azure
+   Support 才能轉換，不一定能在 Portal 上直接按鈕升級。
+3. **確認 InnoServe 有沒有發放企業版 Azure 額度給參賽隊伍**（見 §6.1）——如果主辦方發的
+   是企業版而非學生版訂閱，就不會有這個限制。
+
+等訂閱問題解決、真的建好 Azure OpenAI 資源後，步驟是：登入 **Azure AI Foundry**
+（<https://ai.azure.com>）→ 建立 **Project** → 左側「**Deployments**」→「**+ Deploy
+model**」→ 選 **gpt-4o**（或先選 **gpt-4o-mini** 省成本）→ 取一個 **Deployment name**
+（這個名字對應 `.env` 的 `AZURE_OPENAI_DEPLOYMENT`，不是模型代號本身）→ 到「**Keys and
+Endpoint**」頁面複製 `Key`／`Endpoint`。
 
 ### 6.4 填入 `.env` 並測試連線
 
+**只有 Azure AI Vision 那兩個值的階段**（目前狀態）：
+
 ```bash
 cp .env.example .env
-# 用文字編輯器打開 .env，填入上面拿到的四組值
+# 填入 AZURE_VISION_ENDPOINT 跟 AZURE_VISION_KEY 這兩個就好，Azure OpenAI 那三個先留空
+npm run test:azure-vision
+```
+
+`test/azure-vision-test.mjs` 只檢查這兩個變數，跑完會印出：
+
+```
+[vision-test] OK — Azure detected N lines of text on the test screenshot
+[vision-test] locating "忘記密碼"...
+[vision-test] FOUND via ocr at (x, y), confidence 0.99
+[vision-test] Azure AI Vision is wired up correctly.
+```
+
+**等 Azure OpenAI 也解決後**，把 `.env` 剩下三個值填齊，改跑完整版：
+
+```bash
 npm run test:azure
 ```
 
-`npm run test:azure` 會依序打這兩個服務，印出：
+`test/azure-connection-test.mjs` 會依序打兩個服務並各測一個情境，兩者都成功才會印出
+最後那行「both services responded successfully」。
 
-```
-[azure-test] 1/3 calling Azure AI Vision (Read OCR)...
-[azure-test]    OK — detected N lines of text
-[azure-test] 2/3 locating "忘記密碼" (should resolve via OCR alone)...
-    FOUND via ocr at (x, y)
-[azure-test] 3/3 locating "登入 Portal" (should force the Azure OpenAI SoM fallback)...
-    FOUND via llm-vision at (x, y)
-[azure-test] both services responded successfully — Azure integration is wired up correctly.
-```
-
-如果某一步失敗，錯誤訊息會直接印出 Azure 回傳的 HTTP 狀態碼跟原始錯誤內容
-（例如 401 通常是金鑰貼錯、404 常是 endpoint 或 deployment name 打錯），照訊息排查即可。
+**兩支腳本都能用的排查方式**：如果某一步失敗，錯誤訊息會直接印出 Azure 回傳的 HTTP
+狀態碼跟原始錯誤內容（例如 401 通常是金鑰貼錯、404 常是 endpoint 打錯），照訊息排查即可。
 
 ## 7. 下一階段還沒做的事（有意先不做）
 

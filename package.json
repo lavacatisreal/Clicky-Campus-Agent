@@ -8,7 +8,8 @@
     "demo": "node test/run.mjs",
     "test:fallback": "node test/unit-fallback.mjs",
     "test:nav-fallback": "node test/nav-fallback-demo.mjs",
-    "test:keywords": "node test/checkKeywords.mjs --all",
+    "test:keywords": "node --env-file-if-exists=.env test/checkKeywords.mjs --all",
+    "test:keywords:annotate": "node --env-file-if-exists=.env test/checkKeywords.mjs --all --annotate",
     "test:azure": "node --env-file-if-exists=.env test/azure-connection-test.mjs",
     "test:azure-vision": "node --env-file-if-exists=.env test/azure-vision-test.mjs"
   },

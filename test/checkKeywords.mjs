@@ -22,12 +22,17 @@
 // Usage:
 //   node test/checkKeywords.mjs --all
 //   node test/checkKeywords.mjs --image test/fixtures/course-announce.png --keywords test/keywords/course-announce.json
+//   add --annotate to also draw every FOUND keyword's box on one combined
+//   image (test/output/<fixture>-annotated-all.png), numbered to match the
+//   legend printed to the console — unlike `npm run demo`, which only ever
+//   shows one keyword's box at a time.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readdir, readFile } from 'node:fs/promises';
 import { Jimp } from 'jimp';
 import { locateKeyword } from '../src/pipeline/locateKeyword.js';
 import { pickOcrProvider, pickVisionFallback } from './providers.mjs';
+import { drawSetOfMark } from '../src/matching/setOfMark.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +65,7 @@ async function checkOne(imagePath, keywordsPath) {
   let ocrHits = 0;
   let fallbackHits = 0;
   let unresolved = 0;
+  const foundForAnnotation = [];
 
   for (const keyword of keywords) {
     const ocrOnly = await locateKeyword({ image, keyword }, { ocr });
@@ -80,9 +86,15 @@ async function checkOne(imagePath, keywordsPath) {
 
     console.log(`  ${keyword.padEnd(20, '　')} ${ocrCol.padEnd(38)} | ${fallbackCol}`);
 
-    if (ocrConfident) ocrHits++;
-    else if (withFallback.found) fallbackHits++;
-    else unresolved++;
+    if (ocrConfident) {
+      ocrHits++;
+      foundForAnnotation.push({ text: keyword, boundingBox: ocrOnly.primaryMatch.boundingBox });
+    } else if (withFallback.found) {
+      fallbackHits++;
+      foundForAnnotation.push({ text: keyword, boundingBox: withFallback.primaryMatch.boundingBox });
+    } else {
+      unresolved++;
+    }
   }
 
   console.log(
@@ -91,6 +103,19 @@ async function checkOne(imagePath, keywordsPath) {
   if (unresolved > 0) {
     console.log('  ⚠️  unresolved > 0 with a fallback attached is unexpected — investigate locateKeyword.js, not OCR tuning.');
   }
+
+  if (process.argv.includes('--annotate') && foundForAnnotation.length) {
+    const { dataUrl, marks } = await drawSetOfMark(image, foundForAnnotation);
+    const outPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'output',
+      `${path.basename(imagePath, '.png')}-annotated-all.png`
+    );
+    await (await import('node:fs/promises')).writeFile(outPath, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    console.log(`  annotated image (${marks.length} boxes) written to ${outPath}`);
+    console.log('  legend: ' + marks.map((m) => `${m.id}=${m.text}`).join(', '));
+  }
+
   return { total: keywords.length, ocrHits, fallbackHits, unresolved };
 }
 

@@ -287,9 +287,12 @@ node test/checkKeywords.mjs --image test/fixtures/course-announce.png --keywords
    「轉接邏輯正確」（OCR 找不到 → 一定會轉給 LLM），但**驗證不了「LLM 猜的座標準不準」**，
    因為本機沒有真的 Azure OpenAI 金鑰，`with fallback` 欄目前用的是寫死假座標的 stub。
    要驗證真實準確度，把 `.env` 填好、跑 `npm run test:keywords` 就會自動偵測到
-   `AZURE_OPENAI_*` 環境變數並自動改用真的 `azureOpenAiVision.js`（`test/checkKeywords.mjs`
-   裡的 `makeVisionFallback()` 已經處理好這個切換，不用改程式碼），畫面上會顯示
-   `fallback: REAL Azure OpenAI` 而不是 `stub placeholder`。
+   `AZURE_OPENAI_*` 環境變數並自動改用真的 `azureOpenAiVision.js`（`test/providers.mjs`
+   裡的 `pickVisionFallback()` 已經處理好這個切換，不用改程式碼；OCR 那端的自動切換是
+   同一支檔案裡的 `pickOcrProvider()`，`npm run test:keywords` 這個 npm script 本身也已經
+   內建 `--env-file-if-exists=.env`，直接跑就會讀到 `.env`，不用自己加參數），畫面上會顯示
+   `fallback: azure-openai-gpt4o` 而不是 `stub`（OCR 那欄現在已經是
+   `OCR: azure-ai-vision`，見 §4.4）。
    - 如果加了 fallback 後還是有某一行印出 `NOT FOUND ⚠️`，那不是「這個元件比較難找」的
      正常現象，是 `locateKeyword.js` 的轉接邏輯本身出了 bug，要直接去查那支檔案，不是去
      調 OCR 參數。
@@ -373,6 +376,38 @@ node test/checkKeywords.mjs --image test/fixtures/add-drop-course.png --keywords
 ```
 === TOTAL: 56 keywords across 4 pages — 54 via OCR, 2 via fallback, 0 unresolved ===
 ```
+
+### 4.7 一次把整份清單全部框出來 —— `--annotate`
+
+`npm run demo` 一次只能標一個關鍵字的框（見 §「怎麼在 VSCode 測試」的說明）。如果想一次
+看到整份清單裡**所有**找到的關鍵字分別在畫面上的哪個位置，`checkKeywords.mjs` 加一個
+`--annotate` 參數就會多存一張合併圖，每個框旁邊標號碼，對照 console 印出的圖例（例如
+`1=課程加退選, 2=Add and Drop Courses, ...`）：
+
+```bash
+npm run test:keywords:annotate          # 四個頁面各自產生一張
+# 或針對單一頁面：
+node --env-file-if-exists=.env test/checkKeywords.mjs --image test/fixtures/add-drop-course.png --keywords test/keywords/add-drop-course.json --annotate
+```
+
+輸出檔名是 `test/output/<fixture 檔名>-annotated-all.png`，跟 `npm run demo` 的
+`result-annotated.png` 是分開的兩個檔案，不會互相覆蓋。實作上直接重用了
+`src/matching/setOfMark.js` 的畫框/編號邏輯（本來是給 GPT-4o fallback 用的 Set-of-Mark
+標記機制），這裡拿來做視覺化除錯剛好合用，不用另外寫一套畫框程式碼。
+
+**過程中意外抓到一個真實限制**：在 `add-drop-course.png` 這張圖上，查詢「日文(一)A」時，
+框到的其實是**左邊底層頁面**「語言中心」清單裡的「LN0025D 日文(一)A」，不是彈出視窗裡
+「課程名稱」欄位真正該框的「[00001] 日文(一)A」——雖然兩處文字很接近但不是同一個東西。
+原因是：**同一段文字同時出現在畫面上的多個地方**（彈出視窗前景 + 底層頁面背景）時，OCR
+純比對文字內容，沒有能力分辨「哪一個在視覺上最上層、才是使用者實際看得到/點得到的」——
+這是純文字比對的天生限制，跟座標抓不抓得到無關，是**語意/場景層面**的問題。
+
+**實務上的因應方式**：查詢關鍵字時盡量用**更完整、更獨特**的字串（例如查
+`[00001] 日文(一)A` 這種帶課程代碼的完整內容，而不是單獨查 `日文(一)A`），減少撞到畫面
+上其他重複文字的機率。這點之後跟 DOM 解析法整合時也可以互相驗證：如果 DOM 那邊能拿到
+「目前彈出視窗裡的欄位」這個範圍資訊，可以把這個範圍一起傳進來、只在該範圍內找關鍵字，
+從根本解決這類重複文字誤判的問題（目前的 pipeline 介面還沒支援「限定搜尋範圍」，是可以
+考慮的下一步優化方向）。
 
 ## 5. 目前的串接狀態
 

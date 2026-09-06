@@ -320,8 +320,59 @@ Part 1（見 §6.2）建好 Azure AI Vision 資源、填完 `.env` 後，`pickOc
 （四段連結，中間沒有空格分隔）OCR 成同一行文字。這代表如果直接信任這個「行」的座標，
 點下去容易點到隔壁的連結而不是「新選課登記系統」本身——所以 `locateKeyword.js` 正確地把
 它標記為「信心不足」（`matchScore` 只有 0.30，因為關鍵字只佔整行文字的一小部分），轉給
-vision fallback 處理。**這是目前唯一還「活著」、需要 vision fallback 才能精準定位的真實
-案例**——但因為 GPT-4o 目前暫緩（見下方），這個案例現在還沒有真的解法，先記錄下來。
+vision fallback 處理。這是目前唯一還「活著」、需要 vision fallback 才能精準定位的真實
+案例——但因為 GPT-4o 目前暫緩（見下方），這個案例現在還沒有真的解法，先記錄下來。
+
+### 4.5 登入後頁面的驗證（選課系統主頁面）
+
+前面兩次驗證的都是不需要登入的公開頁面。這次測試登入後的「選課面板」主頁面（截圖由使用者
+自行登入後截取並提供，**送出前已把畫面上的學號區塊塗黑**，因為 repo 是 Public，這點很重要，
+細節見對話紀錄——之後有其他登入後頁面要測試都比照這個流程：自己截圖、檢查個資、有需要就
+塗黑再存進 `test/fixtures/`）。
+
+```bash
+node test/checkKeywords.mjs --image test/fixtures/course-selection-main.png --keywords test/keywords/course-selection-main.json
+```
+
+結果：**21/22 個關鍵字用 Azure AI Vision 直接、有信心地找到**，包含這頁本身也有的分頁式
+導覽列（課程加退選／個人功能表／課程查詢／相關資訊）——再次確認這類元件對 Azure 完全不是
+問題。唯一需要 fallback 的 1 個，是查詢課程名稱「5G資通安全導論」時，Azure 把課程代碼跟
+課程名稱 OCR 成同一行「CE3070* 5G資通安全導論」，道理跟 4.4 的麵包屑問題一模一樣：關鍵字
+只佔整行文字的一部分，系統正確判斷信心不足、轉給 fallback。
+
+**三個真實頁面加總**（Portal 登入頁 mockup + 選課系統公告頁 + 選課系統登入後主頁面）：
+
+```
+=== TOTAL: 48 keywords across 3 pages — 46 via OCR, 2 via fallback, 0 unresolved ===
+```
+
+**兩個案例現在都完全一致**：「代碼/路徑前綴 + 目標文字被 OCR 黏成同一行」——這個模式
+已經在兩個不同真實系統上重現了兩次，可以確定是一個系統性的、可預期的邊界情況，不是隨機
+誤判。這也是目前最需要 GPT-4o vision fallback 真正發揮作用的具體場景（比分頁式導覽列更
+需要，因為導覽列 Azure 都能直接處理）。
+
+### 4.6 彈出視窗（modal）的驗證——「加選」按鈕
+
+實際會被 agent 操作的關鍵按鈕，很多是點擊後才跳出來的彈出視窗（例如按「加選」課程後跳出
+「課程加退選 / Add and Drop Courses」這個浮動視窗，裡面才有真正的「加選」「取消」按鈕）。
+用 `test/fixtures/add-drop-course.png`（同樣截圖前已自行處理過畫面上的學號欄位）測試：
+
+```bash
+node test/checkKeywords.mjs --image test/fixtures/add-drop-course.png --keywords test/keywords/add-drop-course.json
+```
+
+結果：**8/8 全部用 Azure AI Vision 直接、有信心地找到**，包含「加選」按鈕本身（信心值
+1.00）。特別驗證過一個容易誤判的細節：畫面右上角圖例區有「已登記加選」這幾個字，跟彈出
+視窗裡的「加選」按鈕文字重疊，但 `matchKeyword()` 正確辨別出**精確符合（`matchType:
+"exact"`）優先於子字串符合**，結果選中的是彈出視窗裡真正的「加選」按鈕
+`(x:897, y:523)`，沒有被右上角的干擾文字誤導。這代表彈出視窗、疊加在原頁面上方的 UI，
+對這條 pipeline 來說跟一般頁面沒有差別，不需要額外處理。
+
+**四個真實頁面加總**：
+
+```
+=== TOTAL: 56 keywords across 4 pages — 54 via OCR, 2 via fallback, 0 unresolved ===
+```
 
 ## 5. 目前的串接狀態
 

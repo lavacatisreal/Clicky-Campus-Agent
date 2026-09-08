@@ -1,23 +1,15 @@
 {
-  "name": "ncu-campus-agent-vision-pipeline",
-  "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Phase 1 PoC: screenshot -> AI/OCR -> keyword -> HTML coordinate pipeline for the NCU campus AI agent browser extension",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "demo": "node test/run.mjs",
-    "test:fallback": "node test/unit-fallback.mjs",
-    "test:nav-fallback": "node test/nav-fallback-demo.mjs",
-    "test:keywords": "node --env-file-if-exists=.env test/checkKeywords.mjs --all",
-    "test:keywords:annotate": "node --env-file-if-exists=.env test/checkKeywords.mjs --all --annotate",
-    "test:azure": "node --env-file-if-exists=.env test/azure-connection-test.mjs",
-    "test:azure-vision": "node --env-file-if-exists=.env test/azure-vision-test.mjs"
+    "start": "node server.js"
   },
   "dependencies": {
-    "jimp": "^1.6.1",
-    "tesseract.js": "^5.1.1"
-  },
-  "devDependencies": {
-    "puppeteer-core": "^25.9.0"
+    "@azure/cosmos": "^4.9.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "openai": "^6.49.0"
   }
 }

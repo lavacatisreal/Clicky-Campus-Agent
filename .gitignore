@@ -1,6 +1,0 @@
-node_modules/
-.env
-test/output/*.png
-*.traineddata
-.history/
-DEVLOG.md

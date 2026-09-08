@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice AI MVP</title>
+
+  <style>
+    body {
+      max-width: 720px;
+      margin: 48px auto;
+      padding: 0 20px;
+      font-family: system-ui, sans-serif;
+      line-height: 1.6;
+    }
+
+    button {
+      padding: 12px 18px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .box {
+      min-height: 48px;
+      padding: 14px;
+      margin-top: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      white-space: pre-wrap;
+    }
+
+    .status {
+      color: #666;
+      min-height: 24px;
+    }
+
+    .conversation-info {
+      margin-top: 20px;
+      padding: 10px 12px;
+      color: #666;
+      background: #f6f6f6;
+      border-radius: 8px;
+      font-size: 13px;
+      word-break: break-all;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>語音 AI MVP</h1>
+  <p>按下按鈕後說話，系統會將語音轉成文字並送到後端。</p>
+
+  <button id="recordButton" type="button">開始說話</button>
+  <button id="stopSpeechButton" type="button">停止語音</button>
+  <button id="newConversationButton" type="button">新增對話</button>
+
+  <p id="status" class="status">尚未開始</p>
+
+  <h2>語音辨識結果</h2>
+  <div id="transcript" class="box">—</div>
+
+  <h2>AI 回覆</h2>
+  <div id="reply" class="box">—</div>
+
+  <div class="conversation-info">
+    <div>
+      <strong>目前對話 ID：</strong>
+      <span id="conversationIdDisplay">載入中…</span>
+    </div>
+  </div>
+
+  <script>
+    const recordButton = document.querySelector("#recordButton");
+    const stopSpeechButton = document.querySelector("#stopSpeechButton");
+    const newConversationButton = document.querySelector(
+      "#newConversationButton"
+    );
+    const statusElement = document.querySelector("#status");
+    const transcriptElement = document.querySelector("#transcript");
+    const replyElement = document.querySelector("#reply");
+    const conversationIdDisplay = document.querySelector(
+      "#conversationIdDisplay"
+    );
+
+    let currentAudio = null;
+    let currentAudioUrl = null;
+    let isSendingChat = false;
+
+    const INSTALL_ID_KEY = "voiceAssistant.installId";
+    const CONVERSATION_ID_KEY = "voiceAssistant.conversationId";
+
+    function getOrCreateId(storage, key) {
+      let id = storage.getItem(key);
+
+      if (!id) {
+        id = crypto.randomUUID();
+        storage.setItem(key, id);
+      }
+
+      return id;
+    }
+
+    const installId = getOrCreateId(localStorage, INSTALL_ID_KEY);
+    let conversationId = getOrCreateId(
+      sessionStorage,
+      CONVERSATION_ID_KEY
+    );
+
+    function updateConversationIdDisplay() {
+      conversationIdDisplay.textContent = conversationId;
+    }
+
+    function startNewConversation() {
+      stopCurrentSpeech();
+
+      conversationId = crypto.randomUUID();
+      sessionStorage.setItem(CONVERSATION_ID_KEY, conversationId);
+
+      transcriptElement.textContent = "—";
+      replyElement.textContent = "—";
+      statusElement.textContent = "已建立新對話。";
+      updateConversationIdDisplay();
+    }
+
+    updateConversationIdDisplay();
+
+    newConversationButton.addEventListener("click", () => {
+      if (isSendingChat) {
+        return;
+      }
+
+      startNewConversation();
+    });
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      recordButton.disabled = true;
+      statusElement.textContent =
+        "此瀏覽器不支援 SpeechRecognition，請使用最新版 Chrome。";
+    } else {
+      const recognition = new SpeechRecognition();
+
+      recognition.lang = "zh-TW";
+      recognition.interimResults = false;
+      recognition.continuous = false;
+
+      recordButton.addEventListener("click", () => {
+        if (isSendingChat) {
+          return;
+        }
+
+        stopCurrentSpeech();
+
+        transcriptElement.textContent = "—";
+        replyElement.textContent = "—";
+        statusElement.textContent = "正在聆聽…";
+        recordButton.disabled = true;
+
+        try {
+          recognition.start();
+        } catch (error) {
+          console.error("SpeechRecognition start error:", error);
+          statusElement.textContent = "無法啟動語音辨識，請稍後再試。";
+          recordButton.disabled = false;
+        }
+      });
+
+      stopSpeechButton.addEventListener("click", () => {
+        stopCurrentSpeech();
+        statusElement.textContent = "已停止語音回覆。";
+      });
+
+      recognition.onresult = async (event) => {
+        const text = event.results[0][0].transcript.trim();
+
+        if (!text) {
+          statusElement.textContent = "沒有辨識到有效文字，請再試一次。";
+          return;
+        }
+
+        transcriptElement.textContent = text;
+        statusElement.textContent = "語音已辨識，正在詢問 AI…";
+
+        isSendingChat = true;
+        recordButton.disabled = true;
+        newConversationButton.disabled = true;
+
+        try {
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              installId,
+              conversationId,
+              text,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok || data.status !== "ok") {
+            throw new Error(data.reply || "AI 回覆失敗。");
+          }
+
+          replyElement.textContent = data.reply;
+          statusElement.textContent = `完成（Provider: ${data.provider}）`;
+
+          await speakWithAzure(toSpeechText(data.reply));
+        } catch (error) {
+          console.error("Chat API error:", error);
+          replyElement.textContent = `錯誤：${error.message}`;
+          statusElement.textContent = "發生錯誤";
+        } finally {
+          isSendingChat = false;
+          recordButton.disabled = false;
+          newConversationButton.disabled = false;
+        }
+      };
+
+      recognition.onerror = (event) => {
+        statusElement.textContent = `語音辨識錯誤：${event.error}`;
+        recordButton.disabled = false;
+      };
+
+      recognition.onend = () => {
+        if (!isSendingChat) {
+          recordButton.disabled = false;
+        }
+
+        if (statusElement.textContent === "正在聆聽…") {
+          statusElement.textContent = "沒有偵測到語音，請再試一次。";
+        }
+      };
+    }
+
+    async function speakWithAzure(text) {
+      try {
+        statusElement.textContent = "Azure 正在合成語音…";
+
+        stopCurrentSpeech();
+
+        const response = await fetch("/api/tts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ text }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+
+          throw new Error(
+            errorData?.message || `Azure TTS error: ${response.status}`
+          );
+        }
+
+        const audioBlob = await response.blob();
+
+        currentAudioUrl = URL.createObjectURL(audioBlob);
+        currentAudio = new Audio(currentAudioUrl);
+
+        currentAudio.onplay = () => {
+          statusElement.textContent = "AI 正在語音回覆…";
+        };
+
+        currentAudio.onended = () => {
+          statusElement.textContent = "語音回覆完成。";
+          stopCurrentSpeech();
+        };
+
+        currentAudio.onerror = () => {
+          statusElement.textContent = "Azure 語音播放失敗。";
+          stopCurrentSpeech();
+        };
+
+        await currentAudio.play();
+      } catch (error) {
+        console.error("Azure TTS error:", error);
+        statusElement.textContent = `文字轉語音失敗：${error.message}`;
+      }
+    }
+
+    function stopCurrentSpeech() {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+      }
+
+      if (currentAudioUrl) {
+        URL.revokeObjectURL(currentAudioUrl);
+        currentAudioUrl = null;
+      }
+    }
+
+    function toSpeechText(text) {
+      return text
+        .replace(/\*\*/g, "")
+        .replace(/[`#_]/g, "")
+        .replace(/^\s*[-*]\s*/gm, "")
+        .trim();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Clicky Campus Agent",
+  "version": "1.0",
+  "description": "校園 AI 虛擬游標測試",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"], 
+      "js": ["content.js"],
+      "all_frames": true
+    }
+  ]
+}

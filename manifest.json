@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Clicky Campus Agent",
   "version": "1.0",
-  "description": "校園 AI 虛擬游標測試",
+  "description": "校園 AI 語音虛擬游標測試",
   "background": {
     "service_worker": "background.js"
   },
@@ -12,5 +12,8 @@
       "js": ["content.js"],
       "all_frames": true
     }
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*"
   ]
 }

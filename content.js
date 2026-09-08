@@ -96,12 +96,72 @@ function doActualClick(el) {
     }, 400);
 }
 
-// --- 鍵盤監聽 (將指令送給 Background) ---
+// --- 語音辨識初始化 ---
+let recognition = null;
+let isListening = false; // 💡 新增：紀錄是否正在錄音中
+
+if ('webkitSpeechRecognition' in window) {
+    recognition = new webkitSpeechRecognition();
+    recognition.lang = 'zh-TW';
+    recognition.continuous = false; 
+    recognition.interimResults = false;
+
+    // 💡 錄音自然結束時，把狀態重置
+    recognition.onend = () => {
+        isListening = false;
+        console.log("[*] 語音聆聽結束。");
+    };
+
+    // 💡 發生錯誤時，也要把狀態重置
+    recognition.onerror = (event) => {
+        console.error("[*] 語音辨識發生錯誤:", event.error);
+        isListening = false; 
+    };
+}
+
+// --- 鍵盤監聽 (Q: 錄音並呼叫 AI, W: 點擊) ---
 document.addEventListener('keydown', (e) => {
+    // 💡 防呆 1：如果使用者長按著鍵盤不放，直接忽略，避免重複觸發
+    if (e.repeat) return; 
+
     const key = e.key.toLowerCase();
+    
     if (key === 'q' && !isAiControlled) {
-        // AI 的目標座標 (這會是相對於「最外層瀏覽器」的絕對座標)
-        chrome.runtime.sendMessage({ type: 'AI_FLY', targetX: 270, targetY: 190 });
+        if (!recognition) {
+            console.error("[*] 你的瀏覽器不支援 Web Speech API");
+            return;
+        }
+
+        // 💡 防呆 2：如果已經在錄音了，就不要再 start 一次
+        if (isListening) {
+            console.log("[*] 已經在聆聽中，請勿重複按下 Q 鍵...");
+            return;
+        }
+
+        console.log("[*] 正在聆聽語音指令 (請允許麥克風權限)...");
+        isListening = true; // 標記為正在錄音中
+        recognition.start();
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            console.log("[*] 語音內容:", transcript);
+
+            const fakeUIInfo = {
+                available_buttons: [
+                    { label: "選課按鈕", x: 300, y: 450 },
+                    { label: "請假系統", x: 600, y: 200 },
+                    { label: "成績查詢", x: 800, y: 150 }
+                ]
+            };
+
+            console.log("[*] 傳送語音與 UI 資訊給 AI 思考中...");
+            chrome.runtime.sendMessage({ 
+                type: 'ASK_AI', 
+                transcript: transcript, 
+                uiInfo: fakeUIInfo 
+            });
+        };
+        
     } else if (key === 'w' && isAiControlled) {
         chrome.runtime.sendMessage({ type: 'AI_CLICK' });
     }

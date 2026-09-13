@@ -1,5 +1,23 @@
 # Clicky Campus Agent
 
+## Branch: Task Planning Overlay
+
+此分支新增網頁內任務規劃 UI，用於展示語音指令到任務完成的流程：
+
+```text
+Q 鍵語音輸入
+→ 顯示辨識文字
+→ AI 分析需求狀態
+→ 顯示 Mock 任務步驟
+→ 逐步更新 pending / running / completed 狀態
+→ 顯示任務完成
+```
+
+- 新增 `planningOverlay.js`：以 Shadow DOM 建立不影響網頁排版的浮動 UI。
+- 修改 `content.js`：將語音、分析與 Mock 任務執行狀態同步到 UI。
+- 修改 `manifest.json`：載入 `planningOverlay.js`。
+- 目前任務規劃與步驟執行使用 Mock 資料，僅供 UI Demo。
+
 一個以 Chrome Extension 製作的校園網頁語音導覽原型。使用者按下 `Q` 後說出需求，Extension 會將語音轉文字、交給本機 Node.js 後端與 Azure OpenAI 判斷，再把虛擬游標導向目標位置。
 
 目前專案重點是驗證以下流程：

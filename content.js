@@ -3,7 +3,17 @@ console.log("[*] Clicky Extension 載入！(頂層渲染 + 跨視窗通訊版)")
 
 // 💡 判斷當前腳本是不是在「最外層的父網頁」執行
 const isTopWindow = (window === window.top);
-
+// --- Planning Overlay 溝通橋梁 ---
+function emitPlanningOverlayEvent(type, detail = {}) {
+  window.dispatchEvent(
+    new CustomEvent(type, {
+      detail: {
+        ...detail,
+        timestamp: Date.now()
+      }
+    })
+  );
+}
 const oldCursor = document.getElementById('ai-fake-cursor');
 if (oldCursor) oldCursor.remove();
 
@@ -24,9 +34,9 @@ fakeCursor.innerHTML = `
         <polygon points="5,3 18,16 12,17 9,22 5,3" fill="#3498db" stroke="white" stroke-width="1.5" />
     </svg>
 `;
-const defaultCursorHtml = fakeCursor.innerHTML;//--new
+const defaultCursorHtml = fakeCursor.innerHTML;
 document.body.appendChild(fakeCursor);
-//--new
+
 const oldSpeechBox = document.getElementById('ai-speech-box');
 if (oldSpeechBox) oldSpeechBox.remove();
 
@@ -111,7 +121,7 @@ function setCursorState(state) {
 
   Object.assign(fakeCursor.style, cursorStyles[state] ?? cursorStyles.idle);
 }
-//--new
+
 let speechBoxHideTimer = null;
 
 function showSpeechBox(message, options = {}) {
@@ -226,7 +236,7 @@ const mouseMoveHandler = (e) => {
         fakeCursor.style.left = `${currentCursorX}px`;
         fakeCursor.style.top = `${currentCursorY}px`;
     }
-    //--new
+    
     if (speechBox.style.opacity === '1' && !isAiControlled) {
     moveSpeechBoxNearCursor();
     }
@@ -275,10 +285,150 @@ function doActualClick(el) {
         el.style.transition = originalTransition;
     }, 400);
 }
+// --- Demo 用 Mock Planner ---
+// 目前只為 UI 展示建立 plan；未來應替換成後端 /api/plan 回傳。
+function createMockPlanForOverlay(transcript) {
+    const text = transcript.trim();
+    const lowerText = text.toLowerCase();
 
+    function buildPlan(goal, summary, steps) {
+        return {
+            goal,
+            summary,
+            progress: {
+                current: 0,
+                total: steps.length,
+                percent: 50
+            },
+        steps: steps.map((title, index) => ({
+            id: `step-${index + 1}`,
+            order: index + 1,
+            title,
+            status: "pending"
+        })),
+        safety: {
+            mode: "preview_only",
+            requiresConfirmation: true,
+            allowAutoExecution: false
+        }
+        };
+    }
+
+    if (
+        lowerText.includes("搜尋") ||
+        lowerText.includes("查詢") ||
+        lowerText.includes("search")
+    ) {
+        const keyword = extractSearchKeywordForOverlay(text);
+
+        return buildPlan(
+        `搜尋「${keyword}」並整理可用結果`,
+        "我會先定位搜尋欄位、輸入關鍵字，再確認頁面結果。",
+        [
+            "定位頁面的搜尋欄位",
+            `輸入搜尋關鍵字：「${keyword}」`,
+            "提交搜尋請求",
+            "等待頁面或搜尋結果載入",
+            "讀取並整理可用結果"
+        ]
+        );
+    }
+
+    if (
+        lowerText.includes("登入") ||
+        lowerText.includes("login") ||
+        lowerText.includes("sign in") ||
+        lowerText.includes("log in")
+    ) {
+        return buildPlan(
+        "找到網頁中的登入入口並引導使用者操作",
+        "我會辨識登入相關元件，確認位置後提供安全的操作提示。",
+        [
+            "掃描頁面中可互動的按鈕與連結",
+            "尋找文字或標籤為「登入」的元件",
+            "確認登入元件目前可見且可操作",
+            "將游標導引至登入入口",
+            "等待使用者按 W 確認點擊"
+        ]
+        );
+    }
+
+    if (
+        lowerText.includes("設定") ||
+        lowerText.includes("settings") ||
+        lowerText.includes("偏好")
+    ) {
+        return buildPlan(
+        "找到網站設定入口並規劃導覽流程",
+        "我會定位設定入口，確認頁面狀態後再提供下一步建議。",
+        [
+            "掃描導覽列與帳號選單",
+            "定位「設定」或「偏好設定」入口",
+            "確認入口是否需要登入",
+            "將游標導引至設定入口",
+            "等待使用者確認下一步"
+        ]
+        );
+    }
+
+    return buildPlan(
+        "理解使用者需求並規劃網頁操作流程",
+        "目前使用通用規劃流程；之後可由真實 AI 依頁面資訊產生細部步驟。",
+        [
+        "分析使用者的語音需求",
+        "辨識可能需要操作的網頁功能",
+        "蒐集可互動元件資訊",
+        "建立可執行的操作計畫",
+        "等待使用者確認是否開始執行"
+        ]
+    );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Demo 專用：依序模擬每一個任務步驟。
+// 不進行真實 DOM 操作、不點擊網頁，只更新 UI。
+async function runMockTaskDemo(plan) {
+  for (let stepIndex = 0; stepIndex < plan.steps.length; stepIndex += 1) {
+    const step = plan.steps[stepIndex];
+
+    emitPlanningOverlayEvent("clicky:demo-step", {
+      stepIndex,
+      status: "running",
+      message: `正在執行第 ${stepIndex + 1} 步：${step.title}`
+    });
+
+    await sleep(1200);
+
+    emitPlanningOverlayEvent("clicky:demo-step", {
+      stepIndex,
+      status: "completed",
+      message: `已完成第 ${stepIndex + 1} 步：${step.title}`
+    });
+
+    await sleep(450);
+  }
+
+  emitPlanningOverlayEvent("clicky:task-completed", {
+    message: "所有任務步驟已完成。"
+  });
+}
+
+function extractSearchKeywordForOverlay(text) {
+    const keyword = text
+        .replace(/^.*?(幫我)?(搜尋|查詢|search)/i, "")
+        .replace(/[，。！？,.!?]/g, "")
+        .replace(/(一下|資訊|資料|幫我|請)/g, "")
+        .trim();
+
+    return keyword || "使用者指定內容";
+}
 // --- 語音辨識初始化 ---
 let recognition = null;
 let isListening = false; // 💡 新增：紀錄是否正在錄音中
+let hasFinalTranscript = false;
 
 if ('webkitSpeechRecognition' in window) {
     recognition = new webkitSpeechRecognition();
@@ -290,16 +440,21 @@ if ('webkitSpeechRecognition' in window) {
     recognition.onend = () => {
         isListening = false;
         console.log("[*] 語音聆聽結束。");
-        //--new
-        if (cursorState === 'listening') {
-            setCursorState('idle');
-            showSpeechBox('沒有收到可辨識的語音，請再試一次。', {
-                tone: 'normal'
+
+        if (!hasFinalTranscript && cursorState === "listening") {
+            setCursorState("idle");
+
+            showSpeechBox("沒有收到可辨識的語音，請再試一次。", {
+                tone: "normal"
+            });
+
+            emitPlanningOverlayEvent("clicky:task-stage", {
+                stage: "idle",
+                message: "沒有收到可辨識的語音，按 Q 再試一次。"
             });
 
             hideSpeechBox(1200);
         }
-        //--new
     };
 
     // 💡 發生錯誤時，也要把狀態重置
@@ -323,25 +478,37 @@ if ('webkitSpeechRecognition' in window) {
             errorMessages[event.error] ?? `語音辨識失敗：${event.error}`,
             { tone: 'error' }
         );
+        
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "error",
+            message:
+                errorMessages[event.error] ??
+                `語音辨識失敗：${event.error}`
+        });
 
         setTimeout(() => {
             if (!isAiControlled) {
-            setCursorState('idle');
-            hideSpeechBox(0);
+                setCursorState('idle');
+                hideSpeechBox(0);
             }
         }, 1800);
-        };
+    };
 
-    //--new
     recognition.onstart = () => {
+        hasFinalTranscript = false;
+
         console.log("[*] 麥克風已啟動，正在聆聽...");
         setCursorState('listening');
 
         showSpeechBox('正在聆聽，請直接說出需求…', {
             tone: 'listening'
         });
+
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "listening",
+            message: "正在聆聽，請直接說出需求…"
+        });
     };
-    //--new
 
     recognition.onresult = (event) => {
         let interimTranscript = '';
@@ -360,7 +527,13 @@ if ('webkitSpeechRecognition' in window) {
 
         if (interimTranscript) {
             showSpeechBox(`正在辨識：${interimTranscript}`, {
-            tone: 'listening'
+                tone: 'listening'
+            });
+
+            emitPlanningOverlayEvent("clicky:task-stage", {
+                stage: "listening",
+                transcript: interimTranscript,
+                message: `正在辨識：${interimTranscript}`
             });
         }
 
@@ -374,6 +547,8 @@ if ('webkitSpeechRecognition' in window) {
             return;
         }
 
+        hasFinalTranscript = true;
+
         console.log("[*] 語音內容:", transcript);
 
         showSpeechBox(`你說：${transcript}`, {
@@ -382,17 +557,29 @@ if ('webkitSpeechRecognition' in window) {
 
         setCursorState('thinking');
 
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "transcript_ready",
+            transcript,
+            message: "語音辨識完成，準備分析需求"
+        });
+
         setTimeout(() => {
             if (cursorState === 'thinking') {
-            showSpeechBox('正在分析頁面並詢問 AI…', {
+                showSpeechBox('正在分析頁面並詢問 AI…', {
                 tone: 'thinking'
-            });
+                });
+
+                emitPlanningOverlayEvent("clicky:task-stage", {
+                stage: "analyzing",
+                transcript,
+                message: "正在分析需求與頁面資訊…"
+                });
             }
         }, 700);
 
         const fakeUIInfo = {
             available_buttons: [
-            { label: "選課按鈕", x: 300, y: 450 },
+            { label: "選課按鈕", x: 350, y: 450 },
             { label: "請假系統", x: 600, y: 200 },
             { label: "成績查詢", x: 800, y: 150 }
             ]
@@ -400,6 +587,29 @@ if ('webkitSpeechRecognition' in window) {
 
         console.log("[*] 傳送語音與 UI 資訊給 AI 思考中...");
 
+        // 目前先讓 UI 使用假資料建立規劃。
+        // 未來接真實 /api/plan 後，只需把這個事件換成後端回傳資料。
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "planning",
+            transcript,
+            message: "正在根據需求產生任務規劃…"
+        });
+
+        setTimeout(() => {
+        const plan = createMockPlanForOverlay(transcript);
+
+        emitPlanningOverlayEvent("clicky:plan-ready", {
+            transcript,
+            plan
+        });
+
+        // 目前 UI demo：依序模擬每一個任務步驟。
+        // 這段不會真的點擊網頁。
+        runMockTaskDemo(plan);
+
+        // 如果你這一輪「只想 demo UI」，建議先註解掉這個區塊。
+        // 否則 background 仍可能回傳 AI_FLY，干擾 Mock Executor 的進度。
+        /*
         try {
             chrome.runtime.sendMessage({
             type: 'ASK_AI',
@@ -410,18 +620,27 @@ if ('webkitSpeechRecognition' in window) {
             console.error("[*] 無法傳送 AI 請求，請重新整理網頁：", error);
 
             setCursorState('error');
+
+            emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "error",
+            message: "Extension 已更新，請重新整理此網頁後再試。"
+            });
+
             showSpeechBox('Extension 已更新，請重新整理此網頁後再試。', {
             tone: 'error'
             });
-
-            setTimeout(() => {
-            if (!isAiControlled) {
-                setCursorState('idle');
-                hideSpeechBox(0);
-            }
-            }, 1600);
         }
-        };
+        */
+        }, 900);
+
+//             setTimeout(() => {
+//                 if (!isAiControlled) {
+//                     setCursorState('idle');
+//                     hideSpeechBox(0);
+//                 }
+//             }, 1600);
+        }
+//         };
 }
 
 // --- 鍵盤監聽 (Q: 錄音並呼叫 AI, W: 點擊) ---
@@ -432,24 +651,38 @@ document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     
     if (key === 'q' && !isAiControlled) {
+        // 語音已結束、但 AI 還在分析或等待背景回應時，
+        // 不允許用 Q 開第二個任務，避免 demo 流程互相覆蓋。
+        if (cursorState === 'thinking') {
+            console.log("[*] 目前 AI 正在分析需求，請稍候。");
+
+            showSpeechBox("AI 正在分析需求，請稍候…", {
+            tone: "thinking"
+            });
+
+            return;
+        }
+
         if (!recognition) {
             console.error("[*] 你的瀏覽器不支援 Web Speech API");
             return;
         }
 
-        // 💡 防呆 2：如果已經在錄音了，就不要再 start 一次
         if (isListening) {
             console.log("[*] 已經在聆聽中，請勿重複按下 Q 鍵...");
             return;
         }
 
         console.log("[*] 正在聆聽語音指令 (請允許麥克風權限)...");
-        isListening = true; // 標記為正在錄音中
+        isListening = true;
         recognition.start();
-
-        
         
     } else if (key === 'w' && isAiControlled) {
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "executing",
+            message: "正在確認目標並執行點擊…"
+        });
+
         chrome.runtime.sendMessage({ type: 'AI_CLICK' });
     }
 });
@@ -457,10 +690,19 @@ document.addEventListener('keydown', (e) => {
 // --- 接收 Background 的指令廣播 ---
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'AI_FLY') {
-        setCursorState('guiding');//--new
+        setCursorState('guiding');
+
         showSpeechBox('已找到目標，正在帶你前往…', {
             tone: 'success'
         });
+
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "guiding",
+            message: "已找到目標，正在帶你前往；按 W 可確認點擊。",
+            targetX: msg.targetX,
+            targetY: msg.targetY
+        });
+
         isAiControlled = true;
         currentCursorX = msg.targetX;
         currentCursorY = msg.targetY;
@@ -511,7 +753,12 @@ chrome.runtime.onMessage.addListener((msg) => {
     else if (msg.type === 'AI_RELEASE') {
         isAiControlled = false;
         isFirstMove = true;
-        setCursorState('idle');//--new
+        setCursorState('idle');
+
+        emitPlanningOverlayEvent("clicky:task-completed", {
+            message: "任務流程已完成。"
+        });
+
         hideSpeechBox(1000);
     }
 });
@@ -525,4 +772,28 @@ window.addEventListener('message', (event) => {
             doActualClick(elementToClick);
         }
     }
+});
+
+window.addEventListener("clicky:reset-request", () => {
+  console.log("[*] 收到 UI 重置請求。");
+
+  if (recognition && isListening) {
+    recognition.abort();
+  }
+
+  isListening = false;
+  isAiControlled = false;
+  isFirstMove = true;
+  currentTaskId = null;
+
+  setCursorState("idle");
+  hideSpeechBox(0);
+
+  emitPlanningOverlayEvent("clicky:task-stage", {
+    stage: "idle",
+    transcript: "",
+    message: "按 Q 開始語音輸入"
+  });
+
+  emitPlanningOverlayEvent("clicky:task-reset");
 });

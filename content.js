@@ -361,22 +361,52 @@ function setAiControl(active) {
 }
 
 // --- 語音辨識初始化 ---
+// 說完話後停頓超過 SILENCE_TIMEOUT_MS 才結束聆聽；也可以再按一次 Q 立即結束。
+const SILENCE_TIMEOUT_MS = 2500;
+// 單次聆聽最長時間，避免忘記關麥克風
+const MAX_LISTEN_MS = 20000;
+
 let recognition = null;
 let isListening = false; // 💡 新增：紀錄是否正在錄音中
-let hasFinalTranscript = false;
+let heardTranscript = '';
+let silenceTimer = null;
+let maxListenTimer = null;
+
+function clearListenTimers() {
+    clearTimeout(silenceTimer);
+    clearTimeout(maxListenTimer);
+    silenceTimer = null;
+    maxListenTimer = null;
+}
+
+function stopListening() {
+    clearListenTimers();
+    // stop() 會把還在辨識中的文字轉成最終結果，再觸發 onend
+    recognition.stop();
+}
 
 if ('webkitSpeechRecognition' in window) {
     recognition = new webkitSpeechRecognition();
     recognition.lang = 'zh-TW';
-    recognition.continuous = false; 
+    // 💡 continuous：講話中間停頓不會被切斷，由上面的停頓計時器決定何時結束
+    recognition.continuous = true;
     recognition.interimResults = true;
 
-    // 💡 錄音自然結束時，把狀態重置
+    // 💡 錄音結束時，有辨識到文字就進入任務流程，否則把狀態重置
     recognition.onend = () => {
         isListening = false;
+        clearListenTimers();
         console.log("[*] 語音聆聽結束。");
 
-        if (!hasFinalTranscript && cursorState === "listening") {
+        const transcript = heardTranscript.trim();
+        heardTranscript = '';
+
+        if (transcript && cursorState === "listening") {
+            handleFinalTranscript(transcript);
+            return;
+        }
+
+        if (cursorState === "listening") {
             setCursorState("idle");
 
             showSpeechBox("沒有收到可辨識的語音，請再試一次。", {
@@ -397,6 +427,8 @@ if ('webkitSpeechRecognition' in window) {
         console.error("[*] 語音辨識發生錯誤:", event.error);
 
         isListening = false;
+        clearListenTimers();
+        heardTranscript = '';
         setCursorState('error');
 
         const errorMessages = {
@@ -430,80 +462,81 @@ if ('webkitSpeechRecognition' in window) {
     };
 
     recognition.onstart = () => {
-        hasFinalTranscript = false;
+        heardTranscript = '';
 
         console.log("[*] 麥克風已啟動，正在聆聽...");
         setCursorState('listening');
 
-        showSpeechBox('正在聆聽，請直接說出需求…', {
+        showSpeechBox('正在聆聽，說完後停頓一下或再按 Q 結束…', {
             tone: 'listening'
         });
 
         emitPlanningOverlayEvent("clicky:task-stage", {
             stage: "listening",
             transcript: "",
-            message: "正在聆聽，請直接說出需求…"
+            message: "正在聆聽，說完後停頓一下或再按 Q 結束…"
         });
+
+        maxListenTimer = setTimeout(stopListening, MAX_LISTEN_MS);
     };
 
     recognition.onresult = (event) => {
+        // continuous 模式下 event.results 包含這次聆聽的所有片段，每次都完整重組
         let interimTranscript = '';
         let finalTranscript = '';
 
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        for (let i = 0; i < event.results.length; i += 1) {
             const result = event.results[i];
             const text = result[0].transcript;
 
             if (result.isFinal) {
-            finalTranscript += text;
+                finalTranscript += text;
             } else {
-            interimTranscript += text;
+                interimTranscript += text;
             }
         }
 
-        if (interimTranscript) {
-            showSpeechBox(`正在辨識：${interimTranscript}`, {
+        const heardText = (finalTranscript + interimTranscript).trim();
+        // 包含還沒定稿的文字：提早按 Q 結束時也不會漏掉最後幾個字
+        heardTranscript = heardText;
+
+        if (heardText) {
+            showSpeechBox(`正在辨識：${heardText}`, {
                 tone: 'listening'
             });
 
             emitPlanningOverlayEvent("clicky:task-stage", {
                 stage: "listening",
-                transcript: interimTranscript,
-                message: `正在辨識：${interimTranscript}`
+                transcript: heardText,
+                message: "正在辨識…說完後停頓一下或再按 Q 結束"
             });
         }
 
-        if (!finalTranscript) {
-            return;
-        }
-
-        const transcript = finalTranscript.trim();
-
-        if (!transcript) {
-            return;
-        }
-
-        hasFinalTranscript = true;
-
-        console.log("[*] 語音內容:", transcript);
-
-        showSpeechBox(`你說：${transcript}`, {
-            tone: 'success'
-        });
-
-        setCursorState('thinking');
-
-        emitPlanningOverlayEvent("clicky:task-stage", {
-            stage: "transcript_ready",
-            transcript,
-            message: "語音辨識完成，準備辨認需求"
-        });
-
-        // 停留一下讓使用者看到辨識文字，再交給 taskRunner.js：
-        // 辨認需求 → 檢索流程 → 產生規劃 → 依 demoScripts.js 執行並更新進度。
-        // 之後接真實 AI 規劃時，替換 taskRunner.js 的 findDemoScenario / buildPlan 即可。
-        setTimeout(() => requestTaskFlow(transcript), 700);
+        // 每收到新的語音就重新計算停頓時間
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(stopListening, SILENCE_TIMEOUT_MS);
     };
+}
+
+function handleFinalTranscript(transcript) {
+    console.log("[*] 語音內容:", transcript);
+
+    showSpeechBox(`你說：${transcript}`, {
+        tone: 'success'
+    });
+
+    setCursorState('thinking');
+
+    emitPlanningOverlayEvent("clicky:task-stage", {
+        stage: "transcript_ready",
+        transcript,
+        message: "語音辨識完成，準備辨認需求"
+    });
+
+    // 停留一下讓使用者看到辨識文字，再交給 taskRunner.js：
+    // 辨認需求 → 檢索流程 → 產生規劃 → 依 demoScripts.js 執行並更新進度。
+    // 之後接真實 AI 規劃時，替換 taskRunner.js 的 findDemoScenario / buildPlan 即可。
+    setTimeout(() => requestTaskFlow(transcript), 700);
 }
 
 // --- 鍵盤監聽 (Q: 錄音並呼叫 AI, W: 點擊) ---
@@ -523,7 +556,13 @@ document.addEventListener('keydown', (e) => {
     if (isEditableTarget(e) || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
 
     const key = e.key.toLowerCase();
-    
+
+    // 💡 腳本正在等使用者確認點擊（confirmClick 動作）
+    if (key === 'w' && confirmPendingClick()) {
+        e.preventDefault();
+        return;
+    }
+
     if (key === 'q' && isTaskRunning) {
         showSpeechBox("任務執行中，完成後再按 Q 下達新指令。", {
             tone: "thinking"
@@ -550,7 +589,9 @@ document.addEventListener('keydown', (e) => {
         }
 
         if (isListening) {
-            console.log("[*] 已經在聆聽中，請勿重複按下 Q 鍵...");
+            // 聆聽中再按一次 Q：立即結束聆聽並送出目前辨識到的內容
+            console.log("[*] 使用者結束聆聽。");
+            stopListening();
             return;
         }
 

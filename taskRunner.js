@@ -4,12 +4,13 @@
 // 與 content.js 共用 content script 全域：emitPlanningOverlayEvent、showSpeechBox、hideSpeechBox、
 // moveSpeechBoxNearCursor、setCursorState、flyCursorTo、clickAtCursor、setAiControl。
 
+// 各階段停留時間（毫秒），demo 節奏想調快或調慢改這裡。
 const PHASE_DELAY_MS = {
-  analyzing: 900,
-  retrieving: 1100,
-  planning: 1000,
-  planReady: 1200,
-  resume: 800
+  analyzing: 2000,   // 辨認需求
+  retrieving: 2500,  // 檢索校園流程
+  planning: 2500,    // 產生任務規劃
+  planReady: 2000,   // 顯示規劃結果後，開始執行前
+  resume: 800        // 換頁後接續前
 };
 const STEP_GAP_MS = 500;
 const DEFAULT_MOVE_MS = 800;
@@ -49,6 +50,7 @@ function requestTaskFlow(transcript) {
 function cancelTaskFlow() {
   taskRunId += 1;
   isTaskRunning = false;
+  cancelPendingConfirm();
   setAiControl(false);
   clearTaskProgress();
 }
@@ -230,15 +232,32 @@ async function executePlan(run, scenario, transcript, startStepIndex, startActio
     const firstActionIndex = stepIndex === startStepIndex ? startActionIndex : 0;
 
     for (let actionIndex = firstActionIndex; actionIndex < actions.length; actionIndex += 1) {
+      const action = actions[actionIndex];
       // 先記下「下一個動作」再執行：若這個動作造成換頁，新頁面會從下一個動作接續，不會重複點擊。
-      await saveTaskProgress({
+      // opensNewTab 的進度會被 background 轉交給新開的分頁。
+      const progress = {
         scenarioId: scenario.id,
         transcript,
         stepIndex,
-        actionIndex: actionIndex + 1
-      });
+        actionIndex: actionIndex + 1,
+        handoff: Boolean(action.opensNewTab)
+      };
 
-      await runAction(run, actions[actionIndex]);
+      await saveTaskProgress(progress);
+      await runAction(run, action, progress);
+
+      if (action.opensNewTab) {
+        if (actionIndex === actions.length - 1) {
+          emitPlanningOverlayEvent("clicky:step-update", {
+            stepIndex,
+            status: "completed",
+            message: `已完成第 ${stepIndex + 1} / ${total} 步：${step.title}`
+          });
+        }
+
+        finishWithHandoff(run);
+        return;
+      }
     }
 
     emitPlanningOverlayEvent("clicky:step-update", {
@@ -262,9 +281,58 @@ async function executePlan(run, scenario, transcript, startStepIndex, startActio
   hideSpeechBox(4000);
 }
 
+// 這個分頁的工作結束，進度留給新分頁接續（不清除進度）。
+function finishWithHandoff(run) {
+  run.stepIndex = -1;
+  setAiControl(false);
+  setCursorState("idle");
+
+  emitPlanningOverlayEvent("clicky:task-stage", {
+    stage: "handoff",
+    message: "已開啟新分頁，任務會在新分頁繼續。"
+  });
+  showSpeechBox("已開啟新分頁，請到新分頁繼續。", { tone: "success" });
+  hideSpeechBox(3000);
+}
+
+// --- 等待使用者按 W 確認點擊 ---
+
+let pendingConfirm = null;
+
+function waitForConfirm(run, element, beforeClick) {
+  return new Promise((resolve, reject) => {
+    pendingConfirm = { element, beforeClick, resolve, reject };
+  }).then(() => {
+    if (run.isCancelled()) {
+      throw new TaskCancelledError();
+    }
+  });
+}
+
+// content.js 的 W 鍵呼叫。直接在按鍵事件中點擊，瀏覽器才會允許 target="_blank" 開新分頁。
+function confirmPendingClick() {
+  if (!pendingConfirm) {
+    return false;
+  }
+
+  const { element, beforeClick, resolve } = pendingConfirm;
+  pendingConfirm = null;
+
+  beforeClick?.();
+  clickAtCursor(element);
+  resolve();
+
+  return true;
+}
+
+function cancelPendingConfirm() {
+  pendingConfirm?.reject(new TaskCancelledError());
+  pendingConfirm = null;
+}
+
 // --- 腳本動作 ---
 
-async function runAction(run, action) {
+async function runAction(run, action, progress) {
   switch (action.type) {
     case "wait":
       await run.wait(action.ms ?? 1000);
@@ -286,6 +354,27 @@ async function runAction(run, action) {
       }
 
       await run.wait(action.afterMs ?? DEFAULT_CLICK_AFTER_MS);
+      return;
+    }
+
+    case "confirmClick": {
+      const target = await resolveActionTarget(run, action);
+      await moveCursorTo(run, target, action.duration);
+
+      const prompt = action.prompt ?? "按 W 確認點擊";
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "waiting",
+        message: prompt
+      });
+      showSpeechBox(prompt, { tone: "success" });
+
+      // 等待期間可能很久，確認當下重新保存進度，避免新分頁以為進度過期。
+      await waitForConfirm(run, target.element, () => saveTaskProgress(progress));
+
+      if (!action.opensNewTab) {
+        await run.wait(action.afterMs ?? DEFAULT_CLICK_AFTER_MS);
+      }
       return;
     }
 
@@ -367,9 +456,8 @@ async function resolveActionTarget(run, action) {
 
 // 在最外層與同源 iframe 中尋找可見元素，回傳元素與它在最外層視窗的中心座標。
 function findTargetBySelector(selector, doc = document, offsetX = 0, offsetY = 0) {
-  const element = doc.querySelector(selector);
-
-  if (element) {
+  // 同一個 selector 可能對到多個元素（例如隱藏的選單），取第一個看得到的。
+  for (const element of doc.querySelectorAll(selector)) {
     const rect = element.getBoundingClientRect();
 
     if (rect.width > 0 && rect.height > 0) {

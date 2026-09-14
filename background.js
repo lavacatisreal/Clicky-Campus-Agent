@@ -17,7 +17,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         } else if (msg.type === 'CLICKY_TASK_CLEAR') {
             chrome.storage.session.remove(key).then(() => done());
         } else {
-            chrome.storage.session.get(key).then((result) => done({ progress: result[key] ?? null }));
+            // 自己分頁沒有進度時，接手「開啟這個分頁的分頁」標記為 handoff 的進度（target="_blank" 開新分頁）
+            const openerKey = `clickyTask:${sender.tab?.openerTabId}`;
+
+            chrome.storage.session.get([key, openerKey]).then(async (result) => {
+                if (result[key]) {
+                    done({ progress: result[key] });
+                    return;
+                }
+
+                const handoff = result[openerKey];
+                if (sender.tab?.openerTabId !== undefined && handoff?.handoff) {
+                    const progress = { ...handoff, handoff: false };
+                    await chrome.storage.session.remove(openerKey);
+                    await chrome.storage.session.set({ [key]: progress });
+                    done({ progress });
+                    return;
+                }
+
+                done({ progress: null });
+            });
         }
 
         return true;

@@ -5,7 +5,11 @@
 //   { type: "move",  selector?, x?, y?, duration? }            游標飛到目標
 //   { type: "click", selector?, x?, y?, duration?, afterMs? }  有目標就先飛過去再點；沒有目標就點游標目前位置
 //   { type: "type",  selector?, x?, y?, text, charDelayMs? }   點擊輸入框並逐字輸入
+//   { type: "confirmClick", selector?, x?, y?, prompt? }       游標飛到目標後停住，等使用者按 W 才點擊
 //   { type: "wait",  ms }                                       等待（例如等頁面載入）
+//
+// 點擊類動作可加 opensNewTab: true：這個點擊會開新分頁（例如 target="_blank" 的連結），
+// 目前分頁停止執行，由新分頁接續後面的步驟。瀏覽器只允許使用者按鍵觸發開新分頁，所以請搭配 confirmClick。
 //
 // 目標優先用 selector：不受視窗大小影響、能找同源 iframe 內的元素，找不到會重試到 timeout（預設 8000ms）。
 // x / y 是「最外層視窗」的 viewport 座標（clientX / clientY），可以單獨使用，也可以當 selector 找不到時的備援。
@@ -17,36 +21,35 @@ const CLICKY_DEMO_SCENARIOS = [
   {
     id: "course-add",
     intent: "加選課程",
-    keywords: ["加選", "選課", "加課"],
-    goal: "在選課系統加選指定課程",
-    summary: "依照校園選課流程：進入加退選頁面、查詢課程，並送出加選。",
-    // TODO: 以下座標都是佔位值。為了避免在真實系統亂點，目前全部只用 move（不會點擊或輸入）。
-    // 換成選課系統實際的 selector / 座標後，再把對應動作改回 click / type，例如：
-    //   { type: "click", selector: "#加退選按鈕" }
-    //   { type: "type", selector: "#課號輸入框", text: "CE1001" }
+    keywords: ["加選", "選課", "加課", "加退選"],
+    goal: "從 Portal 進入選課系統的課程加退選",
+    summary: "從中央大學 Portal 開啟選課系統，再進入「課程加退選」。",
     steps: [
       {
-        title: "前往「加退選」頁面",
-        actions: [{ type: "move", x: 240, y: 180 }]
+        // Portal：<a href="/system/cs?token=..." target="_blank">選課系統</a>
+        // token 每次登入都不同，所以只比對開頭的 /system/cs
+        title: "在 Portal 找到「選課系統」",
+        actions: [{ type: "move", selector: 'a[href^="/system/cs"]' }]
       },
       {
-        title: "輸入課程代碼",
-        actions: [{ type: "move", x: 420, y: 260 }]
-      },
-      {
-        title: "點擊「查詢」",
-        actions: [{ type: "move", x: 620, y: 260 }]
-      },
-      {
-        title: "點擊課程的「加選」按鈕",
+        title: "按 W 確認開啟選課系統",
         actions: [
-          { type: "wait", ms: 800 },
-          { type: "move", x: 900, y: 420 }
+          {
+            type: "confirmClick",
+            selector: 'a[href^="/system/cs"]',
+            duration: 300,
+            prompt: "按 W 確認開啟「選課系統」",
+            opensNewTab: true
+          }
         ]
       },
       {
-        title: "確認加選結果",
-        actions: [{ type: "move", x: 600, y: 520 }],
+        // 選課系統（cis.ncu.edu.tw，新分頁）：
+        // <td class="rootVoice {menu: 'menu_sign'}" menu="menu_sign">課程加退選</td>
+        title: "點擊「課程加退選」",
+        actions: [
+          { type: "click", selector: 'td[menu="menu_sign"]', timeout: 15000 }
+        ],
         pauseMs: 800
       }
     ]

@@ -16,6 +16,7 @@
     PLAN_READY: "plan_ready",
     GUIDING: "guiding",
     EXECUTING: "executing",
+    HANDOFF: "handoff",
     COMPLETED: "completed",
     ERROR: "error"
   };
@@ -186,7 +187,10 @@
       }
 
       .body {
+        max-height: calc(100vh - 110px);
         padding: 15px 16px 16px;
+        overflow-y: auto;
+        scrollbar-width: thin;
       }
 
       .view {
@@ -547,6 +551,34 @@
         border-color: #34d399;
       }
 
+      .step.waiting {
+        color: #fef3c7;
+        background: rgba(245, 158, 11, 0.13);
+        border-color: rgba(251, 191, 36, 0.55);
+      }
+
+      .step.waiting .step-mark {
+        color: #1f2937;
+        background: #fbbf24;
+        border-color: #fcd34d;
+        box-shadow: 0 0 0 5px rgba(251, 191, 36, 0.14);
+        animation: pulse 1.15s infinite;
+      }
+
+      .progress.waiting .progress-head {
+        color: #fcd34d;
+      }
+
+      .task-result.info {
+        color: #e0e7ff;
+        background: rgba(99, 102, 241, 0.14);
+        border-color: rgba(129, 140, 248, 0.4);
+      }
+
+      .task-result.info .result-icon {
+        background: #6366f1;
+      }
+
       .step.error {
         color: #fecdd3;
         background: rgba(225, 29, 72, 0.12);
@@ -785,8 +817,9 @@
       [Stage.RETRIEVING]: "正在檢索流程",
       [Stage.PLANNING]: "正在產生規劃",
       [Stage.PLAN_READY]: "任務規劃完成",
-      [Stage.GUIDING]: "正在導引目標",
+      [Stage.GUIDING]: "等待按 W 確認點擊",
       [Stage.EXECUTING]: "正在執行任務",
+      [Stage.HANDOFF]: "已在新分頁繼續",
       [Stage.COMPLETED]: "任務已完成",
       [Stage.ERROR]: "發生錯誤"
     };
@@ -803,6 +836,7 @@
       stage === Stage.PLAN_READY ||
       stage === Stage.GUIDING ||
       stage === Stage.EXECUTING ||
+      stage === Stage.HANDOFF ||
       stage === Stage.COMPLETED
     ) {
       return "steps";
@@ -825,6 +859,7 @@
       completed,
       percent: total ? Math.round((completed / total) * 100) : 0,
       runningIndex: steps.findIndex((step) => step.status === "running"),
+      waitingIndex: steps.findIndex((step) => step.status === "waiting"),
       errorIndex: steps.findIndex((step) => step.status === "error")
     };
   }
@@ -903,16 +938,21 @@
     elements.summary.textContent = plan?.summary ?? "";
     elements.progress.hidden = !plan;
 
+    const { total, completed, percent, runningIndex, waitingIndex, errorIndex } = progress;
+
     elements.progress.classList.toggle("running", state.stage === Stage.EXECUTING);
+    elements.progress.classList.toggle("waiting", waitingIndex >= 0);
     elements.progress.classList.toggle("completed", state.stage === Stage.COMPLETED);
     elements.progress.classList.toggle("error", state.stage === Stage.ERROR);
-
-    const { total, completed, percent, runningIndex, errorIndex } = progress;
 
     if (state.stage === Stage.COMPLETED) {
       elements.progressLabel.textContent = `全部完成 ${total} / ${total} 步`;
     } else if (errorIndex >= 0) {
       elements.progressLabel.textContent = `第 ${errorIndex + 1} 步失敗 · 已完成 ${completed} / ${total} 步`;
+    } else if (state.stage === Stage.HANDOFF) {
+      elements.progressLabel.textContent = `已完成 ${completed} / ${total} 步 · 在新分頁繼續`;
+    } else if (waitingIndex >= 0) {
+      elements.progressLabel.textContent = `第 ${waitingIndex + 1} / ${total} 步：等待按 W 確認`;
     } else if (runningIndex >= 0) {
       elements.progressLabel.textContent = `正在執行第 ${runningIndex + 1} / ${total} 步`;
     } else if (completed > 0) {
@@ -928,7 +968,7 @@
     elements.steps.innerHTML = (plan?.steps ?? [])
       .map((step) => {
         const status = step.status ?? "pending";
-        const marks = { completed: "✓", running: "●", error: "!" };
+        const marks = { completed: "✓", running: "●", waiting: "W", error: "!" };
 
         return `
           <li class="step ${escapeHtml(status)}">
@@ -939,11 +979,17 @@
       })
       .join("");
 
-    const isFinished = state.stage === Stage.COMPLETED || state.stage === Stage.ERROR;
-    elements.taskResult.hidden = !(plan && isFinished);
+    const results = {
+      [Stage.COMPLETED]: { icon: "✓", title: "任務完成" },
+      [Stage.ERROR]: { icon: "!", title: "任務中斷" },
+      [Stage.HANDOFF]: { icon: "↗", title: "已開啟新分頁" }
+    };
+    const result = results[state.stage];
+    elements.taskResult.hidden = !(plan && result);
     elements.taskResult.classList.toggle("error", state.stage === Stage.ERROR);
-    elements.resultIcon.textContent = state.stage === Stage.ERROR ? "!" : "✓";
-    elements.resultTitle.textContent = state.stage === Stage.ERROR ? "任務中斷" : "任務完成";
+    elements.taskResult.classList.toggle("info", state.stage === Stage.HANDOFF);
+    elements.resultIcon.textContent = result?.icon ?? "";
+    elements.resultTitle.textContent = result?.title ?? "";
     elements.resultMessage.textContent = state.message;
 
     scrollActiveStepIntoView();
@@ -952,7 +998,7 @@
   // 步驟多時清單會捲動，讓執行中或失敗的步驟保持可見。
   function scrollActiveStepIntoView() {
     const list = elements.steps;
-    const activeStep = list.querySelector(".step.running, .step.error");
+    const activeStep = list.querySelector(".step.running, .step.waiting, .step.error");
 
     if (!activeStep || list.scrollHeight <= list.clientHeight) {
       return;
@@ -1013,15 +1059,17 @@
         return { ...step, status };
       }
 
-      if (status === "running" && index < stepIndex) {
+      if ((status === "running" || status === "waiting") && index < stepIndex) {
         return { ...step, status: "completed" };
       }
 
       return step;
     });
 
+    const stageByStatus = { error: Stage.ERROR, waiting: Stage.GUIDING };
+
     updateState({
-      stage: status === "error" ? Stage.ERROR : Stage.EXECUTING,
+      stage: stageByStatus[status] ?? Stage.EXECUTING,
       view: "steps",
       message: detail.message ?? steps[stepIndex].title,
       plan: { ...state.plan, steps }

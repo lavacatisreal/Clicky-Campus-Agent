@@ -295,17 +295,20 @@ function finishWithHandoff(run) {
   hideSpeechBox(3000);
 }
 
-// --- 等待使用者按 W 確認點擊 ---
+// --- 等待使用者按 W 確認點擊（manual 模式）---
 
 let pendingConfirm = null;
 
+// 回傳 "key"：使用者按 W 並已點擊；"auto"：等待中切換成自動模式，由呼叫端自動點擊。
 function waitForConfirm(run, element, beforeClick) {
   return new Promise((resolve, reject) => {
     pendingConfirm = { element, beforeClick, resolve, reject };
-  }).then(() => {
+  }).then((how) => {
     if (run.isCancelled()) {
       throw new TaskCancelledError();
     }
+
+    return how;
   });
 }
 
@@ -320,7 +323,7 @@ function confirmPendingClick() {
 
   beforeClick?.();
   clickAtCursor(element);
-  resolve();
+  resolve("key");
 
   return true;
 }
@@ -328,6 +331,52 @@ function confirmPendingClick() {
 function cancelPendingConfirm() {
   pendingConfirm?.reject(new TaskCancelledError());
   pendingConfirm = null;
+}
+
+// 等待按 W 的途中切換成自動模式：不用再等，直接自動點擊。
+clickModeSetting.onChange((mode) => {
+  if (mode === "auto" && pendingConfirm) {
+    const { resolve } = pendingConfirm;
+    pendingConfirm = null;
+    resolve("auto");
+  }
+});
+
+// --- 自動點擊（auto 模式）---
+
+const AUTO_CLICK_DELAY_MS = 700;
+
+async function autoClick(run, action, target, progress) {
+  emitPlanningOverlayEvent("clicky:step-update", {
+    stepIndex: run.stepIndex,
+    status: "running",
+    message: action.autoPrompt ?? "自動點擊中…"
+  });
+  showSpeechBox(action.autoPrompt ?? "自動點擊中…", { tone: "normal" });
+
+  // 游標停一下再點，錄影時看得出點了哪裡
+  await run.wait(AUTO_CLICK_DELAY_MS);
+
+  if (!action.opensNewTab) {
+    clickAtCursor(target.element);
+    return;
+  }
+
+  // 瀏覽器會擋下「程式觸發」的 target="_blank" 開新分頁，改請 background 用 chrome.tabs 開啟。
+  const url = target.element?.href;
+
+  if (!/^https?:/i.test(url ?? "")) {
+    throw new Error("自動模式無法取得要開啟的連結網址，請改用手動模式按 W。");
+  }
+
+  await saveTaskProgress(progress);
+  clickAtCursor(target.element, { skipClick: true });
+
+  const response = await chrome.runtime.sendMessage({ type: "CLICKY_OPEN_TAB", url });
+
+  if (!response?.ok) {
+    throw new Error(`無法開啟新分頁：${response?.error ?? "未知錯誤"}`);
+  }
 }
 
 // --- 腳本動作 ---
@@ -361,16 +410,24 @@ async function runAction(run, action, progress) {
       const target = await resolveActionTarget(run, action);
       await moveCursorTo(run, target, action.duration);
 
-      const prompt = action.prompt ?? "按 W 確認點擊";
-      emitPlanningOverlayEvent("clicky:step-update", {
-        stepIndex: run.stepIndex,
-        status: "waiting",
-        message: prompt
-      });
-      showSpeechBox(prompt, { tone: "success" });
+      if (clickModeSetting.value === "auto") {
+        await autoClick(run, action, target, progress);
+      } else {
+        const prompt = action.prompt ?? "按 W 確認點擊";
+        emitPlanningOverlayEvent("clicky:step-update", {
+          stepIndex: run.stepIndex,
+          status: "waiting",
+          message: prompt
+        });
+        showSpeechBox(prompt, { tone: "success" });
 
-      // 等待期間可能很久，確認當下重新保存進度，避免新分頁以為進度過期。
-      await waitForConfirm(run, target.element, () => saveTaskProgress(progress));
+        // 等待期間可能很久，確認當下重新保存進度，避免新分頁以為進度過期。
+        const how = await waitForConfirm(run, target.element, () => saveTaskProgress(progress));
+
+        if (how === "auto") {
+          await autoClick(run, action, target, progress);
+        }
+      }
 
       if (!action.opensNewTab) {
         await run.wait(action.afterMs ?? DEFAULT_CLICK_AFTER_MS);

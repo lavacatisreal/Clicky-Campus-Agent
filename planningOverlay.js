@@ -202,6 +202,13 @@
         gap: 12px;
         padding: 14px 16px;
         border-bottom: 1px solid var(--divider);
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+
+      .card.dragging .header {
+        cursor: grabbing;
       }
 
       .card.minimized .header {
@@ -565,8 +572,9 @@
         background: linear-gradient(90deg, #059669, #34d399);
       }
 
+      /* 完成時文字用主題的最強文字色（深色：白、淺色：黑），在綠色背景上比較清楚 */
       .progress.completed .progress-head {
-        color: var(--green-head);
+        color: var(--text-strong);
       }
 
       .progress.error .progress-fill {
@@ -643,7 +651,8 @@
       }
 
       .step.completed {
-        color: var(--green-text);
+        color: var(--text-strong);
+        font-weight: 700;
         background: var(--green-bg);
         border-color: var(--green-border);
       }
@@ -700,7 +709,8 @@
         gap: 10px;
         margin-top: 14px;
         padding: 12px;
-        color: var(--result-text);
+        color: var(--text-strong);
+        font-weight: 700;
         background: var(--result-bg);
         border: 1px solid var(--result-border);
         border-radius: 12px;
@@ -742,6 +752,10 @@
         opacity: 0.85;
       }
 
+      .task-result:not(.error):not(.info) .result-message {
+        opacity: 1;
+      }
+
       @keyframes result-in {
         from {
           opacity: 0;
@@ -764,8 +778,39 @@
       }
 
       .shortcut {
+        margin-top: 10px;
         color: var(--text-faint);
         font-size: 11px;
+      }
+
+      .mode-switch {
+        display: inline-flex;
+        gap: 2px;
+        padding: 3px;
+        background: var(--chip-bg);
+        border: 1px solid var(--chip-border);
+        border-radius: 10px;
+      }
+
+      .mode-option {
+        padding: 5px 11px;
+        color: var(--text-muted);
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .mode-option:hover {
+        color: var(--text-strong);
+      }
+
+      .mode-option.active {
+        color: #ffffff;
+        background: linear-gradient(135deg, #6366f1, #a855f7);
       }
 
       .reset {
@@ -786,12 +831,12 @@
     </style>
 
     <section class="card" id="card" aria-live="polite">
-      <header class="header">
+      <header class="header" id="header" title="拖曳可移動，雙擊回到右下角">
         <div class="brand">
           <div class="logo">✦</div>
 
           <div class="title-wrap">
-            <div class="title">Clicky Task Planner</div>
+            <div class="title">Clicky Campus Agent</div>
             <div class="subtitle" id="subtitle">等待語音指令</div>
           </div>
         </div>
@@ -857,12 +902,16 @@
         </section>
 
         <footer class="footer">
-          <div class="shortcut">
-            <span class="key">Q</span> 開始語音
-            <span class="key">W</span> 確認點擊
+          <div class="mode-switch" role="group" aria-label="執行模式">
+            <button class="mode-option" id="manualModeButton" type="button" title="每一步點擊前等你按 W 確認">手動</button>
+            <button class="mode-option" id="autoModeButton" type="button" title="游標到位後自動點擊並進入下一步">自動</button>
           </div>
           <button class="reset" id="resetButton" type="button">重新開始</button>
         </footer>
+        <div class="shortcut">
+          <span class="key">Q</span> 開始語音
+          <span id="confirmShortcut"><span class="key">W</span> 確認點擊</span>
+        </div>
       </div>
     </section>
   `;
@@ -871,6 +920,7 @@
 
   const elements = {
     card: shadow.querySelector("#card"),
+    header: shadow.querySelector("#header"),
     subtitle: shadow.querySelector("#subtitle"),
 
     voiceView: shadow.querySelector("#voiceView"),
@@ -899,6 +949,9 @@
     resultMessage: shadow.querySelector("#resultMessage"),
 
     themeButton: shadow.querySelector("#themeButton"),
+    manualModeButton: shadow.querySelector("#manualModeButton"),
+    autoModeButton: shadow.querySelector("#autoModeButton"),
+    confirmShortcut: shadow.querySelector("#confirmShortcut"),
     minimizeButton: shadow.querySelector("#minimizeButton"),
     closeButton: shadow.querySelector("#closeButton"),
     resetButton: shadow.querySelector("#resetButton")
@@ -1000,6 +1053,9 @@
     elements.minimizeButton.textContent = state.isMinimized ? "+" : "−";
     elements.minimizeButton.title = state.isMinimized ? "展開" : "最小化";
     elements.minimizeButton.setAttribute("aria-label", elements.minimizeButton.title);
+
+    // 內容高度改變後，確保卡片仍在畫面內
+    applyPosition();
   }
 
   function renderVoiceView() {
@@ -1226,7 +1282,7 @@
     light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
   };
 
-  onThemeChange((theme) => {
+  themeSetting.onChange((theme) => {
     host.dataset.theme = theme;
     elements.themeButton.innerHTML = THEME_ICONS[theme];
     elements.themeButton.title = theme === "dark" ? "切換為淺色模式" : "切換為深色模式";
@@ -1234,8 +1290,21 @@
   });
 
   elements.themeButton.addEventListener("click", () => {
-    setTheme(currentTheme === "dark" ? "light" : "dark");
+    themeSetting.set(themeSetting.value === "dark" ? "light" : "dark");
   });
+
+  // 自動 / 手動模式：設定由 content.js 管理並同步到所有分頁
+  clickModeSetting.onChange((mode) => {
+    elements.manualModeButton.classList.toggle("active", mode === "manual");
+    elements.autoModeButton.classList.toggle("active", mode === "auto");
+    elements.manualModeButton.setAttribute("aria-pressed", String(mode === "manual"));
+    elements.autoModeButton.setAttribute("aria-pressed", String(mode === "auto"));
+    // 自動模式不需要按 W
+    elements.confirmShortcut.hidden = mode === "auto";
+  });
+
+  elements.manualModeButton.addEventListener("click", () => clickModeSetting.set("manual"));
+  elements.autoModeButton.addEventListener("click", () => clickModeSetting.set("auto"));
 
   elements.minimizeButton.addEventListener("click", () => {
     updateState({ isMinimized: !state.isMinimized });
@@ -1258,6 +1327,137 @@
 
     host.remove();
   });
+
+  // --- 拖曳移動 ---
+  // 沒拖曳過：固定在右下角，內容變高時往上長（原本的行為）。
+  // 拖曳後：改以右上角為錨點（right / top），最小化時標題列和按鈕停在原地，內容往下長。
+  // 位置存在 chrome.storage.local，重新整理或切換 Portal / 選課系統分頁都會保留。
+  const POSITION_STORAGE_KEY = "clickyOverlayPosition";
+  const DEFAULT_OFFSET = 20;
+  const EDGE_MARGIN = 8;
+
+  // 使用者想要的位置（null = 預設右下角）。實際套用時會限制在畫面內，但不改寫這個值，
+  // 避免卡片暫時變高被推回來後，縮小時回不到原位。
+  let desiredPosition = null;
+  let appliedPosition = null;
+  let drag = null;
+
+  function applyPosition() {
+    if (!desiredPosition) {
+      appliedPosition = null;
+      Object.assign(host.style, {
+        top: "auto",
+        right: `${DEFAULT_OFFSET}px`,
+        bottom: `${DEFAULT_OFFSET}px`
+      });
+      return;
+    }
+
+    const rect = elements.card.getBoundingClientRect();
+    const maxRight = Math.max(EDGE_MARGIN, window.innerWidth - rect.width - EDGE_MARGIN);
+    const maxTop = Math.max(EDGE_MARGIN, window.innerHeight - rect.height - EDGE_MARGIN);
+    const clamp = (value, max) => Math.min(Math.max(value, EDGE_MARGIN), max);
+
+    appliedPosition = {
+      right: clamp(desiredPosition.right, maxRight),
+      top: clamp(desiredPosition.top, maxTop)
+    };
+
+    Object.assign(host.style, {
+      top: `${appliedPosition.top}px`,
+      right: `${appliedPosition.right}px`,
+      bottom: "auto"
+    });
+  }
+
+  function savePosition() {
+    try {
+      chrome.storage.local.set({ [POSITION_STORAGE_KEY]: desiredPosition });
+    } catch (error) {
+      console.warn("[Clicky] 無法保存面板位置：", error);
+    }
+  }
+
+  elements.header.addEventListener("pointerdown", (event) => {
+    // 點標題列上的按鈕（主題、最小化、關閉）不觸發拖曳
+    if (event.button !== 0 || event.target.closest("button")) {
+      return;
+    }
+
+    event.preventDefault();
+    elements.header.setPointerCapture(event.pointerId);
+    elements.card.classList.add("dragging");
+
+    const rect = elements.card.getBoundingClientRect();
+    drag = {
+      startX: event.clientX,
+      startY: event.clientY,
+      right: window.innerWidth - rect.right,
+      top: rect.top
+    };
+  });
+
+  elements.header.addEventListener("pointermove", (event) => {
+    if (!drag) {
+      return;
+    }
+
+    desiredPosition = {
+      right: drag.right - (event.clientX - drag.startX),
+      top: drag.top + (event.clientY - drag.startY)
+    };
+    applyPosition();
+  });
+
+  function endDrag() {
+    if (!drag) {
+      return;
+    }
+
+    drag = null;
+    elements.card.classList.remove("dragging");
+
+    // 只是點一下標題列、沒有真的移動時，維持原本位置
+    if (!appliedPosition) {
+      return;
+    }
+
+    // 存實際位置，拖出畫面外的部分不保留
+    desiredPosition = { ...appliedPosition };
+    savePosition();
+  }
+
+  elements.header.addEventListener("pointerup", endDrag);
+  elements.header.addEventListener("pointercancel", endDrag);
+
+  elements.header.addEventListener("dblclick", (event) => {
+    if (event.target.closest("button")) {
+      return;
+    }
+
+    desiredPosition = null;
+    applyPosition();
+    savePosition();
+  });
+
+  listeners.push(["resize", applyPosition]);
+  window.addEventListener("resize", applyPosition);
+
+  try {
+    chrome.storage.local
+      .get(POSITION_STORAGE_KEY)
+      .then((result) => {
+        const saved = result[POSITION_STORAGE_KEY];
+
+        if (Number.isFinite(saved?.right) && Number.isFinite(saved?.top)) {
+          desiredPosition = { right: saved.right, top: saved.top };
+          applyPosition();
+        }
+      })
+      .catch((error) => console.warn("[Clicky] 無法讀取面板位置：", error));
+  } catch (error) {
+    console.warn("[Clicky] 無法讀取面板位置：", error);
+  }
 
   render();
 

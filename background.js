@@ -41,6 +41,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         return true;
     }
+    // 💡 自動模式開新分頁：頁面腳本觸發的 target="_blank" 會被瀏覽器擋下，改由 extension 開啟。
+    //    帶 openerTabId，新分頁才能透過上面的 handoff 接續任務進度。
+    else if (msg.type === 'CLICKY_OPEN_TAB') {
+        if (!/^https?:/i.test(msg.url ?? '')) {
+            sendResponse({ ok: false, error: '只允許開啟 http / https 網址' });
+            return;
+        }
+
+        chrome.tabs.create({
+            url: msg.url,
+            openerTabId: sender.tab?.id,
+            index: sender.tab ? sender.tab.index + 1 : undefined
+        })
+            .then(() => sendResponse({ ok: true }))
+            .catch((error) => sendResponse({ ok: false, error: String(error) }));
+
+        return true;
+    }
     else if (msg.type === 'ASK_AI') {
         const aiPrompt = `使用者語音指令: "${msg.transcript}"\n畫面按鈕資訊: ${JSON.stringify(msg.uiInfo)}\n請根據指令判斷使用者想點擊哪個按鈕，並嚴格只回傳 JSON 格式，例如 {"x": 270, "y": 190}，不要任何其他文字或 markdown 標籤。`;
 

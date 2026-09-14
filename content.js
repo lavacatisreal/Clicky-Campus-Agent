@@ -24,45 +24,56 @@ function emitPlanningOverlayEvent(type, detail = {}) {
   window.dispatchEvent(new CustomEvent(type, { detail: payload }));
 }
 
-// --- 深淺色主題 ---
-// Overlay 與游標旁對話框共用；存在 chrome.storage.local，Portal 與選課系統等所有分頁同步。
-const THEME_STORAGE_KEY = "clickyTheme";
-let currentTheme = "dark";
-const themeListeners = new Set();
+// --- 使用者設定（深淺色主題、自動 / 手動模式）---
+// 存在 chrome.storage.local，Portal 與選課系統等所有分頁同步。allowedValues 第一個是預設值。
+function createSyncedSetting(storageKey, allowedValues) {
+  const listeners = new Set();
 
-function onThemeChange(listener) {
-  themeListeners.add(listener);
-  listener(currentTheme);
-}
+  const setting = {
+    value: allowedValues[0],
 
-function applyTheme(theme) {
-  currentTheme = theme === "light" ? "light" : "dark";
-  themeListeners.forEach((listener) => listener(currentTheme));
-}
+    onChange(listener) {
+      listeners.add(listener);
+      listener(setting.value);
+    },
 
-function setTheme(theme) {
-  applyTheme(theme);
+    set(value) {
+      apply(value);
+
+      try {
+        chrome.storage.local.set({ [storageKey]: setting.value });
+      } catch (error) {
+        console.warn(`[Clicky] 無法保存設定 ${storageKey}：`, error);
+      }
+    }
+  };
+
+  function apply(value) {
+    setting.value = allowedValues.includes(value) ? value : allowedValues[0];
+    listeners.forEach((listener) => listener(setting.value));
+  }
 
   try {
-    chrome.storage.local.set({ [THEME_STORAGE_KEY]: currentTheme });
+    chrome.storage.local
+      .get(storageKey)
+      .then((result) => apply(result[storageKey]))
+      .catch((error) => console.warn(`[Clicky] 無法讀取設定 ${storageKey}：`, error));
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && changes[storageKey]) {
+        apply(changes[storageKey].newValue);
+      }
+    });
   } catch (error) {
-    console.warn("[Clicky] 無法保存主題設定：", error);
+    console.warn(`[Clicky] 無法讀取設定 ${storageKey}，使用預設值：`, error);
   }
+
+  return setting;
 }
 
-try {
-  chrome.storage.local
-    .get(THEME_STORAGE_KEY)
-    .then((result) => applyTheme(result[THEME_STORAGE_KEY]))
-    .catch((error) => console.warn("[Clicky] 無法讀取主題設定：", error));
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes[THEME_STORAGE_KEY]) {
-      applyTheme(changes[THEME_STORAGE_KEY].newValue);
-    }
-  });
-} catch (error) {
-  console.warn("[Clicky] 無法讀取主題設定，使用深色模式：", error);
-}
+// Overlay 與游標旁對話框共用
+const themeSetting = createSyncedSetting("clickyTheme", ["dark", "light"]);
+// manual：每次 confirmClick 前等使用者按 W；auto：游標到位後自動點擊
+const clickModeSetting = createSyncedSetting("clickyClickMode", ["manual", "auto"]);
 const oldCursor = document.getElementById('ai-fake-cursor');
 if (oldCursor) oldCursor.remove();
 
@@ -130,8 +141,8 @@ Object.assign(thinkingSpinner.style, {
   height: '22px',
   margin: '4px',
   boxSizing: 'border-box',
-  border: '3px solid rgba(155, 89, 182, 0.25)',
-  borderTopColor: '#9b59b6',
+  border: '3px solid rgba(107, 114, 128, 0.25)',
+  borderTopColor: '#6b7280',
   borderRadius: '50%'
 });
 let thinkingSpinnerAnimation = null;
@@ -213,18 +224,18 @@ const SPEECH_BOX_TONES = {
 };
 
 function applySpeechBoxTone() {
-  const tones = SPEECH_BOX_TONES[currentTheme];
+  const tones = SPEECH_BOX_TONES[themeSetting.value];
   const style = tones[speechBoxTone] ?? tones.normal;
 
   speechBox.style.background = style.background;
   speechBox.style.border = style.border;
   speechBox.style.color = style.color;
-  speechBox.style.boxShadow = currentTheme === 'light'
+  speechBox.style.boxShadow = themeSetting.value === 'light'
     ? '0 8px 24px rgba(15, 23, 42, 0.14)'
     : '0 8px 24px rgba(0, 0, 0, 0.25)';
 }
 
-onThemeChange(applySpeechBoxTone);
+themeSetting.onChange(applySpeechBoxTone);
 
 function showSpeechBox(message, options = {}) {
   const {
@@ -346,13 +357,14 @@ function createRippleAnimation(x, y) {
     setTimeout(() => { if (document.body.contains(ripple)) document.body.removeChild(ripple); }, 500);
 }
 
-function doActualClick(el) {
+// skipClick：只顯示點擊效果不真的點（例如由 background 代開新分頁時）
+function doActualClick(el, { skipClick = false } = {}) {
     console.log("[*] 點擊成功！目標元素：", el);
     const originalBoxShadow = el.style.boxShadow;
     const originalTransition = el.style.transition;
     el.style.transition = 'box-shadow 0.2s';
     el.style.boxShadow = "0 0 15px 5px rgba(231, 76, 60, 0.9)";
-    el.click();
+    if (!skipClick) el.click();
     setTimeout(() => { 
         el.style.boxShadow = originalBoxShadow; 
         el.style.transition = originalTransition;
@@ -377,7 +389,7 @@ function flyCursorTo(x, y, duration = 800) {
 }
 
 // 傳入 targetElement 時直接點它（腳本已找到元素）；否則點游標目前位置的元素。
-function clickAtCursor(targetElement = null) {
+function clickAtCursor(targetElement = null, options = {}) {
     if (!isTopWindow) return;
 
     // 💡 只有最外層網頁負責處理點擊動畫與邏輯
@@ -403,7 +415,7 @@ function clickAtCursor(targetElement = null) {
             localY: localY
         }, '*');
     } else {
-        doActualClick(elementToClick);
+        doActualClick(elementToClick, options);
     }
 }
 

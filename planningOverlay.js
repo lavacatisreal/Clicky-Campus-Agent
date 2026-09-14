@@ -166,8 +166,11 @@
       }
 
       .card {
-        width: 360px;
-        max-width: calc(100vw - 32px);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: var(--card-width, 360px);
+        max-width: calc(100vw - 16px);
         overflow: hidden;
         color: var(--text);
         background: var(--bg);
@@ -186,16 +189,76 @@
         pointer-events: auto;
       }
 
+      /* 使用者調整過高度：固定卡片高度，內容區自己捲動 */
+      .card.sized {
+        height: var(--card-height);
+        max-height: calc(100vh - 16px);
+      }
+
       .card.minimized {
         width: auto;
+        height: auto;
         min-width: 224px;
       }
 
-      .card.minimized .body {
+      .card.minimized .body,
+      .card.minimized .card-footer,
+      .card.minimized .resize-handle {
         display: none;
       }
 
+      /* 調整大小的把手：左邊、下邊、左下角（右上角固定不動） */
+      .resize-handle {
+        position: absolute;
+        z-index: 2;
+        touch-action: none;
+      }
+
+      .resize-handle.left {
+        top: 56px;
+        bottom: 14px;
+        left: 0;
+        width: 7px;
+        cursor: ew-resize;
+      }
+
+      .resize-handle.bottom {
+        right: 18px;
+        bottom: 0;
+        left: 14px;
+        height: 7px;
+        cursor: ns-resize;
+      }
+
+      .resize-handle.corner {
+        bottom: 0;
+        left: 0;
+        width: 16px;
+        height: 16px;
+        cursor: nesw-resize;
+      }
+
+      /* 左下角的斜線提示 */
+      .resize-handle.corner::after {
+        position: absolute;
+        bottom: 4px;
+        left: 4px;
+        width: 8px;
+        height: 8px;
+        border-bottom: 2px solid var(--text-faint);
+        border-left: 2px solid var(--text-faint);
+        border-bottom-left-radius: 3px;
+        opacity: 0.7;
+        content: "";
+      }
+
+      .card.resizing,
+      .card.resizing * {
+        user-select: none;
+      }
+
       .header {
+        flex: none;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -297,14 +360,34 @@
       }
 
       .body {
-        max-height: calc(100vh - 110px);
-        padding: 15px 16px 16px;
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: calc(100vh - 170px);
+        padding: 15px 16px 4px;
         overflow-y: auto;
         scrollbar-width: thin;
       }
 
+      .card.sized .body {
+        max-height: none;
+      }
+
+      /* 調整過高度時整個內容區一起捲動，步驟清單不再另外限制高度 */
+      .card.sized .steps {
+        max-height: none;
+      }
+
       .view {
         min-height: 270px;
+      }
+
+      .card.sized .view {
+        min-height: 0;
+      }
+
+      .card-footer {
+        flex: none;
+        padding: 10px 16px 14px;
       }
 
       .section-label {
@@ -774,7 +857,6 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-top: 16px;
       }
 
       .shortcut {
@@ -831,7 +913,7 @@
     </style>
 
     <section class="card" id="card" aria-live="polite">
-      <header class="header" id="header" title="拖曳可移動，雙擊回到右下角">
+      <header class="header" id="header" title="拖曳可移動，雙擊恢復預設位置與大小">
         <div class="brand">
           <div class="logo">✦</div>
 
@@ -901,6 +983,9 @@
           </div>
         </section>
 
+      </div>
+
+      <div class="card-footer">
         <footer class="footer">
           <div class="mode-switch" role="group" aria-label="執行模式">
             <button class="mode-option" id="manualModeButton" type="button" title="每一步點擊前等你按 W 確認">手動</button>
@@ -913,6 +998,10 @@
           <span id="confirmShortcut"><span class="key">W</span> 確認點擊</span>
         </div>
       </div>
+
+      <div class="resize-handle left" data-edge="left" title="拖曳調整寬度"></div>
+      <div class="resize-handle bottom" data-edge="bottom" title="拖曳調整高度"></div>
+      <div class="resize-handle corner" data-edge="corner" title="拖曳調整大小"></div>
     </section>
   `;
 
@@ -1436,12 +1525,151 @@
     }
 
     desiredPosition = null;
+    cardSize = { width: null, height: null };
+    applySize();
     applyPosition();
     savePosition();
+    saveSize();
   });
 
-  listeners.push(["resize", applyPosition]);
-  window.addEventListener("resize", applyPosition);
+  // --- 調整大小 ---
+  // 拖曳左邊、下邊或左下角調整；右上角固定，所以開始調整時會切換成右上角錨點。
+  // 大小存在 chrome.storage.local，雙擊標題列恢復預設。
+  const SIZE_STORAGE_KEY = "clickyOverlaySize";
+  const MIN_WIDTH = 300;
+  const MIN_HEIGHT = 240;
+
+  // null 表示沿用預設（寬 360px、高度依內容）
+  let cardSize = { width: null, height: null };
+  let resize = null;
+
+  function clampSize(width, height) {
+    const maxWidth = window.innerWidth - EDGE_MARGIN * 2;
+    const maxHeight = window.innerHeight - EDGE_MARGIN * 2;
+
+    return {
+      width: width === null ? null : Math.round(Math.min(Math.max(width, MIN_WIDTH), maxWidth)),
+      height: height === null ? null : Math.round(Math.min(Math.max(height, MIN_HEIGHT), maxHeight))
+    };
+  }
+
+  function applySize() {
+    const { width, height } = clampSize(cardSize.width, cardSize.height);
+
+    if (width === null) {
+      host.style.removeProperty("--card-width");
+    } else {
+      host.style.setProperty("--card-width", `${width}px`);
+    }
+
+    if (height === null) {
+      host.style.removeProperty("--card-height");
+    } else {
+      host.style.setProperty("--card-height", `${height}px`);
+    }
+
+    elements.card.classList.toggle("sized", height !== null);
+  }
+
+  function saveSize() {
+    try {
+      chrome.storage.local.set({ [SIZE_STORAGE_KEY]: cardSize });
+    } catch (error) {
+      console.warn("[Clicky] 無法保存面板大小：", error);
+    }
+  }
+
+  for (const handle of shadow.querySelectorAll(".resize-handle")) {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      handle.setPointerCapture(event.pointerId);
+
+      const rect = elements.card.getBoundingClientRect();
+
+      // 固定右上角：從預設右下角位置開始調整時，先換成等效的右上角位置
+      desiredPosition = { right: window.innerWidth - rect.right, top: rect.top };
+      applyPosition();
+
+      resize = {
+        edge: handle.dataset.edge,
+        startX: event.clientX,
+        startY: event.clientY,
+        width: rect.width,
+        height: rect.height,
+        right: window.innerWidth - rect.right,
+        top: rect.top
+      };
+      elements.card.classList.add("resizing");
+    });
+
+    handle.addEventListener("pointermove", (event) => {
+      if (!resize) {
+        return;
+      }
+
+      const dx = event.clientX - resize.startX;
+      const dy = event.clientY - resize.startY;
+      // 往左拉變寬、往下拉變高，並且不超出畫面左邊與下邊
+      const maxWidth = window.innerWidth - resize.right - EDGE_MARGIN;
+      const maxHeight = window.innerHeight - resize.top - EDGE_MARGIN;
+
+      if (resize.edge === "left" || resize.edge === "corner") {
+        cardSize.width = Math.min(resize.width - dx, maxWidth);
+      }
+
+      if (resize.edge === "bottom" || resize.edge === "corner") {
+        cardSize.height = Math.min(resize.height + dy, maxHeight);
+      }
+
+      applySize();
+    });
+
+    const endResize = () => {
+      if (!resize) {
+        return;
+      }
+
+      resize = null;
+      elements.card.classList.remove("resizing");
+      cardSize = clampSize(cardSize.width, cardSize.height);
+      applySize();
+      applyPosition();
+      saveSize();
+      savePosition();
+    };
+
+    handle.addEventListener("pointerup", endResize);
+    handle.addEventListener("pointercancel", endResize);
+  }
+
+  const handleWindowResize = () => {
+    applySize();
+    applyPosition();
+  };
+
+  listeners.push(["resize", handleWindowResize]);
+  window.addEventListener("resize", handleWindowResize);
+
+  try {
+    chrome.storage.local
+      .get(SIZE_STORAGE_KEY)
+      .then((result) => {
+        const saved = result[SIZE_STORAGE_KEY];
+        const readSize = (value) => (Number.isFinite(value) ? value : null);
+
+        cardSize = { width: readSize(saved?.width), height: readSize(saved?.height) };
+        applySize();
+        applyPosition();
+      })
+      .catch((error) => console.warn("[Clicky] 無法讀取面板大小：", error));
+  } catch (error) {
+    console.warn("[Clicky] 無法讀取面板大小：", error);
+  }
 
   try {
     chrome.storage.local

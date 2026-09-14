@@ -3,16 +3,25 @@ console.log("[*] Clicky Extension 載入！(頂層渲染 + 跨視窗通訊版)")
 
 // 💡 判斷當前腳本是不是在「最外層的父網頁」執行
 const isTopWindow = (window === window.top);
+const CLICKY_MESSAGE_SOURCE = "clicky-campus-agent";
+
 // --- Planning Overlay 溝通橋梁 ---
+// Overlay 只存在於最外層視窗；iframe 內的事件轉送到最外層再派發。
 function emitPlanningOverlayEvent(type, detail = {}) {
-  window.dispatchEvent(
-    new CustomEvent(type, {
-      detail: {
-        ...detail,
-        timestamp: Date.now()
-      }
-    })
-  );
+  const payload = {
+    ...detail,
+    timestamp: Date.now()
+  };
+
+  if (!isTopWindow) {
+    window.top.postMessage(
+      { source: CLICKY_MESSAGE_SOURCE, kind: "overlay-event", type, detail: payload },
+      "*"
+    );
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(type, { detail: payload }));
 }
 const oldCursor = document.getElementById('ai-fake-cursor');
 if (oldCursor) oldCursor.remove();
@@ -285,146 +294,72 @@ function doActualClick(el) {
         el.style.transition = originalTransition;
     }, 400);
 }
-// --- Demo 用 Mock Planner ---
-// 目前只為 UI 展示建立 plan；未來應替換成後端 /api/plan 回傳。
-function createMockPlanForOverlay(transcript) {
-    const text = transcript.trim();
-    const lowerText = text.toLowerCase();
+// --- 游標控制（AI_FLY / AI_CLICK 與 taskRunner.js 腳本共用）---
+function flyCursorTo(x, y, duration = 800) {
+    isAiControlled = true;
+    currentCursorX = x;
+    currentCursorY = y;
 
-    function buildPlan(goal, summary, steps) {
-        return {
-            goal,
-            summary,
-            progress: {
-                current: 0,
-                total: steps.length,
-                percent: 50
-            },
-        steps: steps.map((title, index) => ({
-            id: `step-${index + 1}`,
-            order: index + 1,
-            title,
-            status: "pending"
-        })),
-        safety: {
-            mode: "preview_only",
-            requiresConfirmation: true,
-            allowAutoExecution: false
-        }
-        };
+    if (isTopWindow) {
+        // 💡 只有最外層網頁負責畫游標與飛行！
+        fakeCursor.style.opacity = '1';
+        fakeCursor.style.transition = `top ${duration}ms ease-in-out, left ${duration}ms ease-in-out`;
+        fakeCursor.style.left = `${currentCursorX}px`;
+        fakeCursor.style.top = `${currentCursorY}px`;
+    } else {
+        // 所有 iframe 乖乖把自己的游標藏起來
+        fakeCursor.style.opacity = '0';
+    }
+}
+
+// 傳入 targetElement 時直接點它（腳本已找到元素）；否則點游標目前位置的元素。
+function clickAtCursor(targetElement = null) {
+    if (!isTopWindow) return;
+
+    // 💡 只有最外層網頁負責處理點擊動畫與邏輯
+    fakeCursor.style.transform = 'scale(0.8)';
+    setTimeout(() => { fakeCursor.style.transform = 'scale(1)'; }, 150);
+    createRippleAnimation(currentCursorX, currentCursorY);
+
+    const elementToClick = targetElement ?? document.elementFromPoint(currentCursorX, currentCursorY);
+    if (!elementToClick) return;
+
+    // 如果點擊目標是個 iframe（跨域無法直接操作）
+    if (elementToClick.tagName === 'IFRAME' || elementToClick.tagName === 'FRAME') {
+        console.log("[*] 目標在 iframe 內，發送跨視窗指令請它代點...");
+        const rect = elementToClick.getBoundingClientRect();
+        // 換算成 iframe 內部的相對座標
+        const localX = currentCursorX - rect.left;
+        const localY = currentCursorY - rect.top;
+
+        // 透過 postMessage 把點擊指令傳給那個特定的 iframe
+        elementToClick.contentWindow.postMessage({
+            type: 'EXECUTE_IFRAME_CLICK',
+            localX: localX,
+            localY: localY
+        }, '*');
+    } else {
+        doActualClick(elementToClick);
+    }
+}
+
+// 腳本執行期間讓所有 iframe 隱藏各自的游標，避免畫面上出現兩個游標。
+function setAiControl(active) {
+    isAiControlled = active;
+    if (active) {
+        fakeCursor.style.opacity = isTopWindow ? '1' : '0';
+    } else {
+        isFirstMove = true;
     }
 
-    if (
-        lowerText.includes("搜尋") ||
-        lowerText.includes("查詢") ||
-        lowerText.includes("search")
-    ) {
-        const keyword = extractSearchKeywordForOverlay(text);
-
-        return buildPlan(
-        `搜尋「${keyword}」並整理可用結果`,
-        "我會先定位搜尋欄位、輸入關鍵字，再確認頁面結果。",
-        [
-            "定位頁面的搜尋欄位",
-            `輸入搜尋關鍵字：「${keyword}」`,
-            "提交搜尋請求",
-            "等待頁面或搜尋結果載入",
-            "讀取並整理可用結果"
-        ]
+    for (let i = 0; i < window.frames.length; i += 1) {
+        window.frames[i].postMessage(
+            { source: CLICKY_MESSAGE_SOURCE, kind: 'ai-control', active },
+            '*'
         );
     }
-
-    if (
-        lowerText.includes("登入") ||
-        lowerText.includes("login") ||
-        lowerText.includes("sign in") ||
-        lowerText.includes("log in")
-    ) {
-        return buildPlan(
-        "找到網頁中的登入入口並引導使用者操作",
-        "我會辨識登入相關元件，確認位置後提供安全的操作提示。",
-        [
-            "掃描頁面中可互動的按鈕與連結",
-            "尋找文字或標籤為「登入」的元件",
-            "確認登入元件目前可見且可操作",
-            "將游標導引至登入入口",
-            "等待使用者按 W 確認點擊"
-        ]
-        );
-    }
-
-    if (
-        lowerText.includes("設定") ||
-        lowerText.includes("settings") ||
-        lowerText.includes("偏好")
-    ) {
-        return buildPlan(
-        "找到網站設定入口並規劃導覽流程",
-        "我會定位設定入口，確認頁面狀態後再提供下一步建議。",
-        [
-            "掃描導覽列與帳號選單",
-            "定位「設定」或「偏好設定」入口",
-            "確認入口是否需要登入",
-            "將游標導引至設定入口",
-            "等待使用者確認下一步"
-        ]
-        );
-    }
-
-    return buildPlan(
-        "理解使用者需求並規劃網頁操作流程",
-        "目前使用通用規劃流程；之後可由真實 AI 依頁面資訊產生細部步驟。",
-        [
-        "分析使用者的語音需求",
-        "辨識可能需要操作的網頁功能",
-        "蒐集可互動元件資訊",
-        "建立可執行的操作計畫",
-        "等待使用者確認是否開始執行"
-        ]
-    );
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Demo 專用：依序模擬每一個任務步驟。
-// 不進行真實 DOM 操作、不點擊網頁，只更新 UI。
-async function runMockTaskDemo(plan) {
-  for (let stepIndex = 0; stepIndex < plan.steps.length; stepIndex += 1) {
-    const step = plan.steps[stepIndex];
-
-    emitPlanningOverlayEvent("clicky:demo-step", {
-      stepIndex,
-      status: "running",
-      message: `正在執行第 ${stepIndex + 1} 步：${step.title}`
-    });
-
-    await sleep(1200);
-
-    emitPlanningOverlayEvent("clicky:demo-step", {
-      stepIndex,
-      status: "completed",
-      message: `已完成第 ${stepIndex + 1} 步：${step.title}`
-    });
-
-    await sleep(450);
-  }
-
-  emitPlanningOverlayEvent("clicky:task-completed", {
-    message: "所有任務步驟已完成。"
-  });
-}
-
-function extractSearchKeywordForOverlay(text) {
-    const keyword = text
-        .replace(/^.*?(幫我)?(搜尋|查詢|search)/i, "")
-        .replace(/[，。！？,.!?]/g, "")
-        .replace(/(一下|資訊|資料|幫我|請)/g, "")
-        .trim();
-
-    return keyword || "使用者指定內容";
-}
 // --- 語音辨識初始化 ---
 let recognition = null;
 let isListening = false; // 💡 新增：紀錄是否正在錄音中
@@ -506,6 +441,7 @@ if ('webkitSpeechRecognition' in window) {
 
         emitPlanningOverlayEvent("clicky:task-stage", {
             stage: "listening",
+            transcript: "",
             message: "正在聆聽，請直接說出需求…"
         });
     };
@@ -560,96 +496,41 @@ if ('webkitSpeechRecognition' in window) {
         emitPlanningOverlayEvent("clicky:task-stage", {
             stage: "transcript_ready",
             transcript,
-            message: "語音辨識完成，準備分析需求"
+            message: "語音辨識完成，準備辨認需求"
         });
 
-        setTimeout(() => {
-            if (cursorState === 'thinking') {
-                showSpeechBox('正在分析頁面並詢問 AI…', {
-                tone: 'thinking'
-                });
-
-                emitPlanningOverlayEvent("clicky:task-stage", {
-                stage: "analyzing",
-                transcript,
-                message: "正在分析需求與頁面資訊…"
-                });
-            }
-        }, 700);
-
-        const fakeUIInfo = {
-            available_buttons: [
-            { label: "選課按鈕", x: 350, y: 450 },
-            { label: "請假系統", x: 600, y: 200 },
-            { label: "成績查詢", x: 800, y: 150 }
-            ]
-        };
-
-        console.log("[*] 傳送語音與 UI 資訊給 AI 思考中...");
-
-        // 目前先讓 UI 使用假資料建立規劃。
-        // 未來接真實 /api/plan 後，只需把這個事件換成後端回傳資料。
-        emitPlanningOverlayEvent("clicky:task-stage", {
-            stage: "planning",
-            transcript,
-            message: "正在根據需求產生任務規劃…"
-        });
-
-        setTimeout(() => {
-        const plan = createMockPlanForOverlay(transcript);
-
-        emitPlanningOverlayEvent("clicky:plan-ready", {
-            transcript,
-            plan
-        });
-
-        // 目前 UI demo：依序模擬每一個任務步驟。
-        // 這段不會真的點擊網頁。
-        runMockTaskDemo(plan);
-
-        // 如果你這一輪「只想 demo UI」，建議先註解掉這個區塊。
-        // 否則 background 仍可能回傳 AI_FLY，干擾 Mock Executor 的進度。
-        /*
-        try {
-            chrome.runtime.sendMessage({
-            type: 'ASK_AI',
-            transcript,
-            uiInfo: fakeUIInfo
-            });
-        } catch (error) {
-            console.error("[*] 無法傳送 AI 請求，請重新整理網頁：", error);
-
-            setCursorState('error');
-
-            emitPlanningOverlayEvent("clicky:task-stage", {
-            stage: "error",
-            message: "Extension 已更新，請重新整理此網頁後再試。"
-            });
-
-            showSpeechBox('Extension 已更新，請重新整理此網頁後再試。', {
-            tone: 'error'
-            });
-        }
-        */
-        }, 900);
-
-//             setTimeout(() => {
-//                 if (!isAiControlled) {
-//                     setCursorState('idle');
-//                     hideSpeechBox(0);
-//                 }
-//             }, 1600);
-        }
-//         };
+        // 停留一下讓使用者看到辨識文字，再交給 taskRunner.js：
+        // 辨認需求 → 檢索流程 → 產生規劃 → 依 demoScripts.js 執行並更新進度。
+        // 之後接真實 AI 規劃時，替換 taskRunner.js 的 findDemoScenario / buildPlan 即可。
+        setTimeout(() => requestTaskFlow(transcript), 700);
+    };
 }
 
 // --- 鍵盤監聽 (Q: 錄音並呼叫 AI, W: 點擊) ---
+// 使用者正在輸入框、下拉選單或可編輯區塊打字時，快捷鍵不應觸發。
+function isEditableTarget(e) {
+    // composedPath()[0] 才是 Shadow DOM 內真正被聚焦的元素
+    const el = e.composedPath()[0];
+    if (!(el instanceof Element)) return false;
+    return el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+}
+
 document.addEventListener('keydown', (e) => {
     // 💡 防呆 1：如果使用者長按著鍵盤不放，直接忽略，避免重複觸發
-    if (e.repeat) return; 
+    if (e.repeat) return;
+
+    // 💡 防呆 2：在輸入框打字、中文輸入法選字中、或按組合鍵（Ctrl+Q 等）時不觸發
+    if (isEditableTarget(e) || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
 
     const key = e.key.toLowerCase();
     
+    if (key === 'q' && isTaskRunning) {
+        showSpeechBox("任務執行中，完成後再按 Q 下達新指令。", {
+            tone: "thinking"
+        });
+        return;
+    }
+
     if (key === 'q' && !isAiControlled) {
         // 語音已結束、但 AI 還在分析或等待背景回應時，
         // 不允許用 Q 開第二個任務，避免 demo 流程互相覆蓋。
@@ -677,7 +558,7 @@ document.addEventListener('keydown', (e) => {
         isListening = true;
         recognition.start();
         
-    } else if (key === 'w' && isAiControlled) {
+    } else if (key === 'w' && isAiControlled && !isTaskRunning) {
         emitPlanningOverlayEvent("clicky:task-stage", {
             stage: "executing",
             message: "正在確認目標並執行點擊…"
@@ -703,50 +584,11 @@ chrome.runtime.onMessage.addListener((msg) => {
             targetY: msg.targetY
         });
 
-        isAiControlled = true;
-        currentCursorX = msg.targetX;
-        currentCursorY = msg.targetY;
-
-        if (isTopWindow) {
-            // 💡 只有最外層網頁負責畫游標與飛行！
-            fakeCursor.style.opacity = '1';
-            fakeCursor.style.transition = 'top 0.8s ease-in-out, left 0.8s ease-in-out';
-            fakeCursor.style.left = `${currentCursorX}px`;
-            fakeCursor.style.top = `${currentCursorY}px`;
-        } else {
-            // 所有 iframe 乖乖把自己的游標藏起來
-            fakeCursor.style.opacity = '0';
-        }
-    } 
+        flyCursorTo(msg.targetX, msg.targetY);
+    }
     else if (msg.type === 'AI_CLICK') {
         if (isTopWindow) {
-            // 💡 只有最外層網頁負責處理點擊動畫與邏輯
-            fakeCursor.style.transform = 'scale(0.8)';
-            setTimeout(() => { fakeCursor.style.transform = 'scale(1)'; }, 150);
-            createRippleAnimation(currentCursorX, currentCursorY);
-
-            const elementToClick = document.elementFromPoint(currentCursorX, currentCursorY);
-            if (elementToClick) {
-                // 如果最外層網頁發現底下是個 iframe
-                if (elementToClick.tagName === 'IFRAME' || elementToClick.tagName === 'FRAME') {
-                    console.log("[*] 目標在 iframe 內，發送跨視窗指令請它代點...");
-                    const rect = elementToClick.getBoundingClientRect();
-                    // 換算成 iframe 內部的相對座標
-                    const localX = currentCursorX - rect.left;
-                    const localY = currentCursorY - rect.top;
-                    
-                    // 透過 postMessage 把點擊指令傳給那個特定的 iframe
-                    elementToClick.contentWindow.postMessage({
-                        type: 'EXECUTE_IFRAME_CLICK',
-                        localX: localX,
-                        localY: localY
-                    }, '*');
-                } else {
-                    // 目標就在外層網頁，直接點擊
-                    doActualClick(elementToClick);
-                }
-            }
-
+            clickAtCursor();
             setTimeout(() => { chrome.runtime.sendMessage({ type: 'AI_RELEASE' }); }, 600);
         }
     }
@@ -765,12 +607,28 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // --- 接收外層網頁傳來的代點指令 (專門給 iframe 用的) ---
 window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'EXECUTE_IFRAME_CLICK') {
+    const data = event.data;
+    if (!data) return;
+
+    if (data.type === 'EXECUTE_IFRAME_CLICK') {
         // iframe 收到指令後，用自己內部的座標找出元素並點擊
-        const elementToClick = document.elementFromPoint(event.data.localX, event.data.localY);
+        const elementToClick = document.elementFromPoint(data.localX, data.localY);
         if (elementToClick) {
             doActualClick(elementToClick);
         }
+        return;
+    }
+
+    if (data.source !== CLICKY_MESSAGE_SOURCE) return;
+
+    if (isTopWindow && data.kind === 'overlay-event') {
+        // iframe 轉送上來的 Overlay 事件
+        emitPlanningOverlayEvent(data.type, data.detail);
+    } else if (isTopWindow && data.kind === 'run-task') {
+        // iframe 內辨識完成的語音，由最外層執行任務流程
+        startTaskFlow(data.transcript);
+    } else if (!isTopWindow && data.kind === 'ai-control') {
+        setAiControl(data.active);
     }
 });
 
@@ -781,10 +639,8 @@ window.addEventListener("clicky:reset-request", () => {
     recognition.abort();
   }
 
+  cancelTaskFlow();
   isListening = false;
-  isAiControlled = false;
-  isFirstMove = true;
-  currentTaskId = null;
 
   setCursorState("idle");
   hideSpeechBox(0);

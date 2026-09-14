@@ -6,7 +6,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 chrome.tabs.sendMessage(tabs[0].id, msg);
             }
         });
-    } 
+    }
+    // 💡 Demo 腳本進度：依分頁保存，點擊換頁後新頁面可以接續（taskRunner.js）
+    else if (msg.type === 'CLICKY_TASK_SAVE' || msg.type === 'CLICKY_TASK_CLEAR' || msg.type === 'CLICKY_TASK_LOAD') {
+        const key = `clickyTask:${sender.tab?.id}`;
+        const done = (response = { ok: true }) => sendResponse(response);
+
+        if (msg.type === 'CLICKY_TASK_SAVE') {
+            chrome.storage.session.set({ [key]: msg.progress }).then(() => done());
+        } else if (msg.type === 'CLICKY_TASK_CLEAR') {
+            chrome.storage.session.remove(key).then(() => done());
+        } else {
+            chrome.storage.session.get(key).then((result) => done({ progress: result[key] ?? null }));
+        }
+
+        return true;
+    }
     else if (msg.type === 'ASK_AI') {
         const aiPrompt = `使用者語音指令: "${msg.transcript}"\n畫面按鈕資訊: ${JSON.stringify(msg.uiInfo)}\n請根據指令判斷使用者想點擊哪個按鈕，並嚴格只回傳 JSON 格式，例如 {"x": 270, "y": 190}，不要任何其他文字或 markdown 標籤。`;
 

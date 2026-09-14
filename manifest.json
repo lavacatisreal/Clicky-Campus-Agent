@@ -5,7 +5,8 @@
   "description": "校園 AI 語音虛擬游標測試",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
 
   "background": {
@@ -16,7 +17,9 @@
     {
       "matches": ["<all_urls>"], 
       "js": [
+      "demoScripts.js",
       "content.js",
+      "taskRunner.js",
       "planningOverlay.js"
       ],
       "all_frames": true,

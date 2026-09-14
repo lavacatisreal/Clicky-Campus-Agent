@@ -55,6 +55,106 @@
     <style>
       :host {
         all: initial;
+
+        /* 深色主題（預設） */
+        --bg:
+          radial-gradient(circle at top right, rgba(79, 70, 229, 0.32), transparent 44%),
+          linear-gradient(145deg, #111827, #1f2937);
+        --border: rgba(148, 163, 184, 0.26);
+        --shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+        --divider: rgba(148, 163, 184, 0.18);
+        --text-strong: #ffffff;
+        --text: #e2e8f0;
+        --text-soft: #cbd5e1;
+        --text-muted: #94a3b8;
+        --text-faint: #64748b;
+        --accent-text: #a5b4fc;
+        --hover-bg: rgba(255, 255, 255, 0.10);
+        --chip-bg: rgba(148, 163, 184, 0.14);
+        --chip-border: rgba(148, 163, 184, 0.2);
+        --chip-text: #cbd5e1;
+        --surface: rgba(15, 23, 42, 0.30);
+        --surface-border: rgba(148, 163, 184, 0.12);
+        --mark-bg: rgba(148, 163, 184, 0.10);
+        --mark-border: rgba(148, 163, 184, 0.22);
+        --transcript-bg: rgba(15, 23, 42, 0.58);
+        --transcript-border: rgba(96, 165, 250, 0.26);
+        --transcript-text: #dbeafe;
+        --track: rgba(148, 163, 184, 0.16);
+        --shimmer: rgba(255, 255, 255, 0.22);
+        --progress-head: #c7d2fe;
+        --blue-text: #dbeafe;
+        --blue-bg: rgba(59, 130, 246, 0.13);
+        --blue-border: rgba(96, 165, 250, 0.45);
+        --green-text: #bbf7d0;
+        --green-bg: rgba(16, 185, 129, 0.10);
+        --green-border: rgba(52, 211, 153, 0.28);
+        --green-head: #6ee7b7;
+        --result-text: #d1fae5;
+        --result-bg: rgba(16, 185, 129, 0.12);
+        --result-border: rgba(52, 211, 153, 0.32);
+        --amber-text: #fef3c7;
+        --amber-bg: rgba(245, 158, 11, 0.13);
+        --amber-border: rgba(251, 191, 36, 0.55);
+        --amber-head: #fcd34d;
+        --red-text: #fecdd3;
+        --red-bg: rgba(225, 29, 72, 0.12);
+        --red-border: rgba(251, 113, 133, 0.45);
+        --red-head: #fda4af;
+        --info-text: #e0e7ff;
+        --info-bg: rgba(99, 102, 241, 0.14);
+        --info-border: rgba(129, 140, 248, 0.4);
+      }
+
+      /* 淺色主題 */
+      :host([data-theme="light"]) {
+        --bg:
+          radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 44%),
+          linear-gradient(145deg, #ffffff, #f8fafc);
+        --border: rgba(15, 23, 42, 0.12);
+        --shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+        --divider: rgba(15, 23, 42, 0.08);
+        --text-strong: #0f172a;
+        --text: #1e293b;
+        --text-soft: #475569;
+        --text-muted: #64748b;
+        --text-faint: #94a3b8;
+        --accent-text: #4f46e5;
+        --hover-bg: rgba(15, 23, 42, 0.06);
+        --chip-bg: #f1f5f9;
+        --chip-border: #e2e8f0;
+        --chip-text: #334155;
+        --surface: #f8fafc;
+        --surface-border: #e2e8f0;
+        --mark-bg: #f1f5f9;
+        --mark-border: #cbd5e1;
+        --transcript-bg: #eef2ff;
+        --transcript-border: #c7d2fe;
+        --transcript-text: #1e3a8a;
+        --track: #e2e8f0;
+        --shimmer: rgba(255, 255, 255, 0.7);
+        --progress-head: #4338ca;
+        --blue-text: #1d4ed8;
+        --blue-bg: #eff6ff;
+        --blue-border: #93c5fd;
+        --green-text: #047857;
+        --green-bg: #ecfdf5;
+        --green-border: #a7f3d0;
+        --green-head: #047857;
+        --result-text: #065f46;
+        --result-bg: #ecfdf5;
+        --result-border: #6ee7b7;
+        --amber-text: #92400e;
+        --amber-bg: #fffbeb;
+        --amber-border: #fbbf24;
+        --amber-head: #b45309;
+        --red-text: #be123c;
+        --red-bg: #fff1f2;
+        --red-border: #fda4af;
+        --red-head: #e11d48;
+        --info-text: #3730a3;
+        --info-bg: #eef2ff;
+        --info-border: #a5b4fc;
       }
 
       * {
@@ -69,13 +169,11 @@
         width: 360px;
         max-width: calc(100vw - 32px);
         overflow: hidden;
-        color: #f8fafc;
-        background:
-          radial-gradient(circle at top right, rgba(79, 70, 229, 0.32), transparent 44%),
-          linear-gradient(145deg, #111827, #1f2937);
-        border: 1px solid rgba(148, 163, 184, 0.26);
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
         border-radius: 18px;
-        box-shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
+        box-shadow: var(--shadow);
         font-family:
           Inter,
           ui-sans-serif,
@@ -103,7 +201,7 @@
         justify-content: space-between;
         gap: 12px;
         padding: 14px 16px;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+        border-bottom: 1px solid var(--divider);
       }
 
       .card.minimized .header {
@@ -136,7 +234,7 @@
 
       .title {
         overflow: hidden;
-        color: #ffffff;
+        color: var(--text-strong);
         font-size: 14px;
         font-weight: 750;
         letter-spacing: 0.01em;
@@ -147,18 +245,18 @@
       .subtitle {
         overflow: hidden;
         margin-top: 2px;
-        color: #a5b4fc;
+        color: var(--accent-text);
         font-size: 11px;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
       .subtitle.completed {
-        color: #6ee7b7;
+        color: var(--green-head);
       }
 
       .subtitle.error {
-        color: #fda4af;
+        color: var(--red-head);
       }
 
       .actions {
@@ -171,7 +269,7 @@
         width: 28px;
         height: 28px;
         padding: 0;
-        color: #cbd5e1;
+        color: var(--text-muted);
         background: transparent;
         border: 0;
         border-radius: 8px;
@@ -181,9 +279,14 @@
         line-height: 1;
       }
 
+      .icon-button svg {
+        width: 16px;
+        height: 16px;
+      }
+
       .icon-button:hover {
-        color: #ffffff;
-        background: rgba(255, 255, 255, 0.10);
+        color: var(--text-strong);
+        background: var(--hover-bg);
       }
 
       .body {
@@ -199,7 +302,7 @@
 
       .section-label {
         margin-bottom: 8px;
-        color: #94a3b8;
+        color: var(--text-muted);
         font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.08em;
@@ -210,9 +313,9 @@
         display: inline-grid;
         min-width: 19px;
         padding: 1px 5px;
-        color: #cbd5e1;
-        background: rgba(148, 163, 184, 0.14);
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: var(--chip-text);
+        background: var(--chip-bg);
+        border: 1px solid var(--chip-border);
         border-radius: 5px;
         place-items: center;
         font-size: 10px;
@@ -233,23 +336,23 @@
 
       .voice-status {
         min-height: 24px;
-        color: #e2e8f0;
+        color: var(--text);
         font-size: 14px;
         font-weight: 650;
         line-height: 1.45;
       }
 
       .voice-status.error {
-        color: #fda4af;
+        color: var(--red-head);
       }
 
       .transcript-box {
         min-height: 104px;
         margin-top: 14px;
         padding: 14px;
-        color: #dbeafe;
-        background: rgba(15, 23, 42, 0.58);
-        border: 1px solid rgba(96, 165, 250, 0.26);
+        color: var(--transcript-text);
+        background: var(--transcript-bg);
+        border: 1px solid var(--transcript-border);
         border-radius: 12px;
         font-size: 14px;
         line-height: 1.65;
@@ -257,12 +360,12 @@
       }
 
       .empty {
-        color: #94a3b8;
+        color: var(--text-muted);
       }
 
       .shortcut-hint {
         margin-top: 14px;
-        color: #64748b;
+        color: var(--text-faint);
         font-size: 12px;
       }
 
@@ -301,7 +404,7 @@
 
       .analyzing-title {
         margin-top: 16px;
-        color: #ffffff;
+        color: var(--text-strong);
         font-size: 17px;
         font-weight: 750;
       }
@@ -310,7 +413,7 @@
         max-width: 290px;
         min-height: 40px;
         margin-top: 6px;
-        color: #cbd5e1;
+        color: var(--text-soft);
         font-size: 13px;
         line-height: 1.55;
       }
@@ -330,9 +433,9 @@
         align-items: center;
         gap: 10px;
         padding: 8px 10px;
-        color: #64748b;
-        background: rgba(15, 23, 42, 0.30);
-        border: 1px solid rgba(148, 163, 184, 0.12);
+        color: var(--text-faint);
+        background: var(--surface);
+        border: 1px solid var(--surface-border);
         border-radius: 10px;
         font-size: 13px;
         transition: color 180ms ease, background 180ms ease, border-color 180ms ease;
@@ -343,7 +446,7 @@
         flex: 0 0 auto;
         width: 20px;
         height: 20px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
+        border: 1px solid var(--mark-border);
         border-radius: 50%;
         place-items: center;
         font-size: 11px;
@@ -351,9 +454,9 @@
       }
 
       .phase.running {
-        color: #dbeafe;
-        background: rgba(59, 130, 246, 0.13);
-        border-color: rgba(96, 165, 250, 0.45);
+        color: var(--blue-text);
+        background: var(--blue-bg);
+        border-color: var(--blue-border);
       }
 
       .phase.running .phase-mark {
@@ -369,7 +472,7 @@
       }
 
       .phase.completed {
-        color: #bbf7d0;
+        color: var(--green-text);
       }
 
       .phase.completed .phase-mark {
@@ -381,7 +484,7 @@
       .analysis-transcript {
         max-width: 290px;
         margin-top: 14px;
-        color: #a5b4fc;
+        color: var(--accent-text);
         font-size: 12px;
         line-height: 1.5;
         overflow-wrap: anywhere;
@@ -390,7 +493,7 @@
       /* ----- 畫面 3：任務規劃與執行進度 ----- */
 
       .goal {
-        color: #ffffff;
+        color: var(--text-strong);
         font-size: 15px;
         font-weight: 750;
         line-height: 1.55;
@@ -398,7 +501,7 @@
 
       .summary {
         margin-top: 6px;
-        color: #cbd5e1;
+        color: var(--text-soft);
         font-size: 13px;
         line-height: 1.55;
       }
@@ -412,13 +515,13 @@
         align-items: baseline;
         justify-content: space-between;
         gap: 12px;
-        color: #c7d2fe;
+        color: var(--progress-head);
         font-size: 12px;
         font-weight: 700;
       }
 
       .progress-percent {
-        color: #ffffff;
+        color: var(--text-strong);
         font-size: 13px;
         font-variant-numeric: tabular-nums;
       }
@@ -428,7 +531,7 @@
         height: 8px;
         margin-top: 8px;
         overflow: hidden;
-        background: rgba(148, 163, 184, 0.16);
+        background: var(--track);
         border-radius: 999px;
       }
 
@@ -443,7 +546,7 @@
       .progress.running .progress-track::after {
         position: absolute;
         inset: 0;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+        background: linear-gradient(90deg, transparent, var(--shimmer), transparent);
         animation: shimmer 1.3s linear infinite;
         content: "";
       }
@@ -463,7 +566,7 @@
       }
 
       .progress.completed .progress-head {
-        color: #6ee7b7;
+        color: var(--green-head);
       }
 
       .progress.error .progress-fill {
@@ -471,7 +574,7 @@
       }
 
       .progress.error .progress-head {
-        color: #fda4af;
+        color: var(--red-head);
       }
 
       .steps {
@@ -493,9 +596,9 @@
         gap: 10px;
         min-height: 40px;
         padding: 8px 9px;
-        color: #94a3b8;
-        background: rgba(15, 23, 42, 0.30);
-        border: 1px solid rgba(148, 163, 184, 0.12);
+        color: var(--text-muted);
+        background: var(--surface);
+        border: 1px solid var(--surface-border);
         border-radius: 10px;
         font-size: 13px;
         line-height: 1.4;
@@ -506,9 +609,9 @@
         display: grid;
         width: 24px;
         height: 24px;
-        color: #94a3b8;
-        background: rgba(148, 163, 184, 0.10);
-        border: 1px solid rgba(148, 163, 184, 0.22);
+        color: var(--text-muted);
+        background: var(--mark-bg);
+        border: 1px solid var(--mark-border);
         border-radius: 50%;
         place-items: center;
         font-size: 11px;
@@ -516,9 +619,9 @@
       }
 
       .step.running {
-        color: #dbeafe;
-        background: rgba(59, 130, 246, 0.13);
-        border-color: rgba(96, 165, 250, 0.45);
+        color: var(--blue-text);
+        background: var(--blue-bg);
+        border-color: var(--blue-border);
       }
 
       .step.running .step-mark {
@@ -540,9 +643,9 @@
       }
 
       .step.completed {
-        color: #bbf7d0;
-        background: rgba(16, 185, 129, 0.10);
-        border-color: rgba(52, 211, 153, 0.28);
+        color: var(--green-text);
+        background: var(--green-bg);
+        border-color: var(--green-border);
       }
 
       .step.completed .step-mark {
@@ -552,9 +655,9 @@
       }
 
       .step.waiting {
-        color: #fef3c7;
-        background: rgba(245, 158, 11, 0.13);
-        border-color: rgba(251, 191, 36, 0.55);
+        color: var(--amber-text);
+        background: var(--amber-bg);
+        border-color: var(--amber-border);
       }
 
       .step.waiting .step-mark {
@@ -566,13 +669,13 @@
       }
 
       .progress.waiting .progress-head {
-        color: #fcd34d;
+        color: var(--amber-head);
       }
 
       .task-result.info {
-        color: #e0e7ff;
-        background: rgba(99, 102, 241, 0.14);
-        border-color: rgba(129, 140, 248, 0.4);
+        color: var(--info-text);
+        background: var(--info-bg);
+        border-color: var(--info-border);
       }
 
       .task-result.info .result-icon {
@@ -580,9 +683,9 @@
       }
 
       .step.error {
-        color: #fecdd3;
-        background: rgba(225, 29, 72, 0.12);
-        border-color: rgba(251, 113, 133, 0.45);
+        color: var(--red-text);
+        background: var(--red-bg);
+        border-color: var(--red-border);
       }
 
       .step.error .step-mark {
@@ -597,9 +700,9 @@
         gap: 10px;
         margin-top: 14px;
         padding: 12px;
-        color: #d1fae5;
-        background: rgba(16, 185, 129, 0.12);
-        border: 1px solid rgba(52, 211, 153, 0.32);
+        color: var(--result-text);
+        background: var(--result-bg);
+        border: 1px solid var(--result-border);
         border-radius: 12px;
         font-size: 13px;
         line-height: 1.5;
@@ -607,9 +710,9 @@
       }
 
       .task-result.error {
-        color: #ffe4e6;
-        background: rgba(225, 29, 72, 0.12);
-        border-color: rgba(251, 113, 133, 0.4);
+        color: var(--red-text);
+        background: var(--red-bg);
+        border-color: var(--red-border);
       }
 
       .result-icon {
@@ -661,15 +764,15 @@
       }
 
       .shortcut {
-        color: #64748b;
+        color: var(--text-faint);
         font-size: 11px;
       }
 
       .reset {
         padding: 8px 10px;
-        color: #e2e8f0;
-        background: rgba(148, 163, 184, 0.1);
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        color: var(--text);
+        background: var(--chip-bg);
+        border: 1px solid var(--chip-border);
         border-radius: 9px;
         cursor: pointer;
         font-family: inherit;
@@ -678,7 +781,7 @@
       }
 
       .reset:hover {
-        background: rgba(148, 163, 184, 0.18);
+        background: var(--hover-bg);
       }
     </style>
 
@@ -694,6 +797,7 @@
         </div>
 
         <div class="actions">
+          <button class="icon-button" id="themeButton" type="button"></button>
           <button class="icon-button" id="minimizeButton" type="button" title="最小化" aria-label="最小化">−</button>
           <button class="icon-button" id="closeButton" type="button" title="關閉" aria-label="關閉">×</button>
         </div>
@@ -794,6 +898,7 @@
     resultTitle: shadow.querySelector("#resultTitle"),
     resultMessage: shadow.querySelector("#resultMessage"),
 
+    themeButton: shadow.querySelector("#themeButton"),
     minimizeButton: shadow.querySelector("#minimizeButton"),
     closeButton: shadow.querySelector("#closeButton"),
     resetButton: shadow.querySelector("#resetButton")
@@ -1112,6 +1217,25 @@
   for (const [type, handler] of listeners) {
     window.addEventListener(type, handler);
   }
+
+  // 深淺色切換：主題狀態由 content.js 管理，並同步到所有分頁
+  const THEME_ICONS = {
+    // 目前是深色 → 顯示太陽（按下切到淺色）
+    dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+    // 目前是淺色 → 顯示月亮（按下切到深色）
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+  };
+
+  onThemeChange((theme) => {
+    host.dataset.theme = theme;
+    elements.themeButton.innerHTML = THEME_ICONS[theme];
+    elements.themeButton.title = theme === "dark" ? "切換為淺色模式" : "切換為深色模式";
+    elements.themeButton.setAttribute("aria-label", elements.themeButton.title);
+  });
+
+  elements.themeButton.addEventListener("click", () => {
+    setTheme(currentTheme === "dark" ? "light" : "dark");
+  });
 
   elements.minimizeButton.addEventListener("click", () => {
     updateState({ isMinimized: !state.isMinimized });

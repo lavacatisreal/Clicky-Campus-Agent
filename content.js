@@ -23,6 +23,46 @@ function emitPlanningOverlayEvent(type, detail = {}) {
 
   window.dispatchEvent(new CustomEvent(type, { detail: payload }));
 }
+
+// --- 深淺色主題 ---
+// Overlay 與游標旁對話框共用；存在 chrome.storage.local，Portal 與選課系統等所有分頁同步。
+const THEME_STORAGE_KEY = "clickyTheme";
+let currentTheme = "dark";
+const themeListeners = new Set();
+
+function onThemeChange(listener) {
+  themeListeners.add(listener);
+  listener(currentTheme);
+}
+
+function applyTheme(theme) {
+  currentTheme = theme === "light" ? "light" : "dark";
+  themeListeners.forEach((listener) => listener(currentTheme));
+}
+
+function setTheme(theme) {
+  applyTheme(theme);
+
+  try {
+    chrome.storage.local.set({ [THEME_STORAGE_KEY]: currentTheme });
+  } catch (error) {
+    console.warn("[Clicky] 無法保存主題設定：", error);
+  }
+}
+
+try {
+  chrome.storage.local
+    .get(THEME_STORAGE_KEY)
+    .then((result) => applyTheme(result[THEME_STORAGE_KEY]))
+    .catch((error) => console.warn("[Clicky] 無法讀取主題設定：", error));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes[THEME_STORAGE_KEY]) {
+      applyTheme(changes[THEME_STORAGE_KEY].newValue);
+    }
+  });
+} catch (error) {
+  console.warn("[Clicky] 無法讀取主題設定，使用深色模式：", error);
+}
 const oldCursor = document.getElementById('ai-fake-cursor');
 if (oldCursor) oldCursor.remove();
 
@@ -83,6 +123,19 @@ document.body.appendChild(speechBox);
 
 let cursorState = 'idle';
 
+// 思考中的轉圈圈（用 Web Animations，不需要在網頁插入 CSS）
+const thinkingSpinner = document.createElement('div');
+Object.assign(thinkingSpinner.style, {
+  width: '22px',
+  height: '22px',
+  margin: '4px',
+  boxSizing: 'border-box',
+  border: '3px solid rgba(155, 89, 182, 0.25)',
+  borderTopColor: '#9b59b6',
+  borderRadius: '50%'
+});
+let thinkingSpinnerAnimation = null;
+
 function setCursorState(state) {
   cursorState = state;
 
@@ -90,12 +143,20 @@ function setCursorState(state) {
 
   const cursorIcons = {
     listening: '🎙️',
-    thinking: '⏳',
     error: '⚠️'
   };
 
+  thinkingSpinnerAnimation?.cancel();
+  thinkingSpinnerAnimation = null;
+
   if (state === 'guiding' || state === 'idle') {
     fakeCursor.innerHTML = defaultCursorHtml;
+  } else if (state === 'thinking') {
+    fakeCursor.replaceChildren(thinkingSpinner);
+    thinkingSpinnerAnimation = thinkingSpinner.animate(
+      [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }],
+      { duration: 800, iterations: Infinity }
+    );
   } else {
     fakeCursor.textContent = cursorIcons[state];
   }
@@ -132,6 +193,38 @@ function setCursorState(state) {
 }
 
 let speechBoxHideTimer = null;
+let speechBoxTone = 'normal';
+
+const SPEECH_BOX_TONES = {
+  dark: {
+    normal: { background: 'rgba(20, 24, 33, 0.92)', border: '1px solid rgba(255, 255, 255, 0.16)', color: '#ffffff' },
+    listening: { background: 'rgba(120, 30, 36, 0.94)', border: '1px solid rgba(255, 100, 110, 0.75)', color: '#ffffff' },
+    thinking: { background: 'rgba(66, 41, 109, 0.94)', border: '1px solid rgba(180, 128, 255, 0.75)', color: '#ffffff' },
+    success: { background: 'rgba(24, 92, 65, 0.94)', border: '1px solid rgba(90, 230, 170, 0.75)', color: '#ffffff' },
+    error: { background: 'rgba(126, 35, 35, 0.96)', border: '1px solid rgba(255, 120, 120, 0.8)', color: '#ffffff' }
+  },
+  light: {
+    normal: { background: 'rgba(255, 255, 255, 0.97)', border: '1px solid #cbd5e1', color: '#0f172a' },
+    listening: { background: 'rgba(255, 241, 242, 0.97)', border: '1px solid #fb7185', color: '#9f1239' },
+    thinking: { background: 'rgba(245, 243, 255, 0.97)', border: '1px solid #a78bfa', color: '#5b21b6' },
+    success: { background: 'rgba(236, 253, 245, 0.97)', border: '1px solid #34d399', color: '#065f46' },
+    error: { background: 'rgba(255, 241, 242, 0.98)', border: '1px solid #f43f5e', color: '#be123c' }
+  }
+};
+
+function applySpeechBoxTone() {
+  const tones = SPEECH_BOX_TONES[currentTheme];
+  const style = tones[speechBoxTone] ?? tones.normal;
+
+  speechBox.style.background = style.background;
+  speechBox.style.border = style.border;
+  speechBox.style.color = style.color;
+  speechBox.style.boxShadow = currentTheme === 'light'
+    ? '0 8px 24px rgba(15, 23, 42, 0.14)'
+    : '0 8px 24px rgba(0, 0, 0, 0.25)';
+}
+
+onThemeChange(applySpeechBoxTone);
 
 function showSpeechBox(message, options = {}) {
   const {
@@ -139,43 +232,14 @@ function showSpeechBox(message, options = {}) {
     followCursor = true
   } = options;
 
-  const toneStyles = {
-    normal: {
-      background: 'rgba(20, 24, 33, 0.92)',
-      border: '1px solid rgba(255, 255, 255, 0.16)'
-    },
-
-    listening: {
-      background: 'rgba(120, 30, 36, 0.94)',
-      border: '1px solid rgba(255, 100, 110, 0.75)'
-    },
-
-    thinking: {
-      background: 'rgba(66, 41, 109, 0.94)',
-      border: '1px solid rgba(180, 128, 255, 0.75)'
-    },
-
-    success: {
-      background: 'rgba(24, 92, 65, 0.94)',
-      border: '1px solid rgba(90, 230, 170, 0.75)'
-    },
-
-    error: {
-      background: 'rgba(126, 35, 35, 0.96)',
-      border: '1px solid rgba(255, 120, 120, 0.8)'
-    }
-  };
-
-  const style = toneStyles[tone] ?? toneStyles.normal;
-
   if (speechBoxHideTimer) {
     clearTimeout(speechBoxHideTimer);
     speechBoxHideTimer = null;
   }
 
   speechBox.textContent = message;
-  speechBox.style.background = style.background;
-  speechBox.style.border = style.border;
+  speechBoxTone = tone;
+  applySpeechBoxTone();
 
   if (followCursor) {
     moveSpeechBoxNearCursor();
@@ -362,7 +426,7 @@ function setAiControl(active) {
 
 // --- 語音辨識初始化 ---
 // 說完話後停頓超過 SILENCE_TIMEOUT_MS 才結束聆聽；也可以再按一次 Q 立即結束。
-const SILENCE_TIMEOUT_MS = 2500;
+const SILENCE_TIMEOUT_MS = 2000;
 // 單次聆聽最長時間，避免忘記關麥克風
 const MAX_LISTEN_MS = 20000;
 
@@ -463,18 +527,22 @@ if ('webkitSpeechRecognition' in window) {
 
     recognition.onstart = () => {
         heardTranscript = '';
+    };
 
+    // 💡 麥克風真的開始收音才提示說話。按 Q 到開始收音之間約有零點幾秒，
+    //    這段時間說的話瀏覽器收不到，所以先顯示「麥克風啟動中」，避免第一個字被吃掉。
+    recognition.onaudiostart = () => {
         console.log("[*] 麥克風已啟動，正在聆聽...");
         setCursorState('listening');
 
-        showSpeechBox('正在聆聽，說完後停頓一下或再按 Q 結束…', {
+        showSpeechBox('🎙️ 請開始說話（說完停頓 2 秒或再按 Q 結束）', {
             tone: 'listening'
         });
 
         emitPlanningOverlayEvent("clicky:task-stage", {
             stage: "listening",
             transcript: "",
-            message: "正在聆聽，說完後停頓一下或再按 Q 結束…"
+            message: "🎙️ 請開始說話（說完停頓 2 秒或再按 Q 結束）"
         });
 
         maxListenTimer = setTimeout(stopListening, MAX_LISTEN_MS);
@@ -597,6 +665,13 @@ document.addEventListener('keydown', (e) => {
 
         console.log("[*] 正在聆聽語音指令 (請允許麥克風權限)...");
         isListening = true;
+        setCursorState('listening');
+        showSpeechBox('麥克風啟動中，請稍候…', { tone: 'listening' });
+        emitPlanningOverlayEvent("clicky:task-stage", {
+            stage: "listening",
+            transcript: "",
+            message: "麥克風啟動中，請稍候…"
+        });
         recognition.start();
         
     } else if (key === 'w' && isAiControlled && !isTaskRunning) {

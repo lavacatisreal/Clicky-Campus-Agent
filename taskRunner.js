@@ -13,7 +13,7 @@ const PHASE_DELAY_MS = {
   resume: 800        // 換頁後接續前
 };
 const STEP_GAP_MS = 500;
-const DEFAULT_MOVE_MS = 800;
+const DEFAULT_MOVE_MS = 1500;  // 游標飛行時間，想更慢就調大
 const DEFAULT_CLICK_AFTER_MS = 600;
 const DEFAULT_CHAR_DELAY_MS = 90;
 const DEFAULT_TARGET_TIMEOUT_MS = 8000;
@@ -408,6 +408,20 @@ async function moveCursorTo(run, target, duration = DEFAULT_MOVE_MS) {
   flyCursorTo(target.x, target.y, duration);
   await run.wait(duration + 120);
   moveSpeechBoxNearCursor();
+  hoverElement(target.element);
+}
+
+// 游標抵達時觸發 mouseover，讓網頁的 hover 效果（例如選單反白）跟著出現。
+function hoverElement(element) {
+  if (!element || element.tagName === "IFRAME" || element.tagName === "FRAME") {
+    return;
+  }
+
+  for (const type of ["mouseover", "mouseenter", "mousemove"]) {
+    element.dispatchEvent(
+      new MouseEvent(type, { bubbles: type !== "mouseenter", cancelable: true, view: window })
+    );
+  }
 }
 
 async function resolveActionTarget(run, action) {
@@ -426,7 +440,7 @@ async function resolveActionTarget(run, action) {
   const deadline = Date.now() + (action.timeout ?? DEFAULT_TARGET_TIMEOUT_MS);
 
   while (Date.now() <= deadline) {
-    const target = findTargetBySelector(action.selector);
+    const target = findTargetBySelector(action.selector, action.matchText);
 
     if (target) {
       if (isInViewport(target)) {
@@ -436,7 +450,7 @@ async function resolveActionTarget(run, action) {
       target.element.scrollIntoView({ block: "center" });
       await run.wait(300);
 
-      return findTargetBySelector(action.selector) ?? target;
+      return findTargetBySelector(action.selector, action.matchText) ?? target;
     }
 
     await run.wait(200);
@@ -451,13 +465,18 @@ async function resolveActionTarget(run, action) {
     };
   }
 
-  throw new Error(`找不到目標元素：${action.selector}`);
+  throw new Error(`找不到目標元素：${action.selector}${action.matchText ? `（文字「${action.matchText}」）` : ""}`);
 }
 
 // 在最外層與同源 iframe 中尋找可見元素，回傳元素與它在最外層視窗的中心座標。
-function findTargetBySelector(selector, doc = document, offsetX = 0, offsetY = 0) {
+// matchText 有值時，只接受文字（去掉前後空白）完全相同的元素。
+function findTargetBySelector(selector, matchText, doc = document, offsetX = 0, offsetY = 0) {
   // 同一個 selector 可能對到多個元素（例如隱藏的選單），取第一個看得到的。
   for (const element of doc.querySelectorAll(selector)) {
+    if (matchText !== undefined && element.textContent.trim() !== matchText) {
+      continue;
+    }
+
     const rect = element.getBoundingClientRect();
 
     if (rect.width > 0 && rect.height > 0) {
@@ -479,6 +498,7 @@ function findTargetBySelector(selector, doc = document, offsetX = 0, offsetY = 0
     const frameRect = frame.getBoundingClientRect();
     const found = findTargetBySelector(
       selector,
+      matchText,
       childDoc,
       offsetX + frameRect.left + frame.clientLeft,
       offsetY + frameRect.top + frame.clientTop

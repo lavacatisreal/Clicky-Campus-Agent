@@ -943,7 +943,7 @@
           <div class="logo" aria-hidden="true"><img src="${logoUrl}" alt="" /></div>
 
           <div class="title-wrap">
-            <div class="title">Clicky Campus Agent</div>
+            <div class="title">CampuX</div>
             <div class="subtitle" id="subtitle">等待語音指令</div>
           </div>
         </div>

@@ -18,6 +18,8 @@
 //
 // 目標優先用 selector：不受視窗大小影響、能找同源 iframe 內的元素，找不到會重試到 timeout（預設 8000ms）。
 // 加上 matchText 可以再用文字篩選，例如 { selector: ".menuContainer a", matchText: "選課" }。
+// 加上 matchPrefix 可以篩選文字開頭，例如 { selector: ".class_no", matchPrefix: "CS" }。
+// matchContext 可讓子元素綁定到同一個課程列，也能同時比對課號與課程名稱。
 // 游標抵達目標時會觸發 mouseover，網頁的 hover 反白效果會跟著出現。
 // x / y 是「最外層視窗」的 viewport 座標（clientX / clientY），可以單獨使用，也可以當 selector 找不到時的備援。
 // 點擊造成換頁時，taskRunner 會記住進度，新頁面載入後自動接續。
@@ -81,6 +83,88 @@ const CLICKY_DEMO_SCENARIOS = [
           }
         ],
         pauseMs: 800
+      },
+      {
+        title: "切換至關鍵字搜尋",
+        actions: [
+          {
+            type: "confirmClick",
+            selector: "button.title_s3.ui-button",
+            matchText: "依關鍵字",
+            prompt: "按 W 啟用關鍵字搜尋",
+            autoPrompt: "正在啟用關鍵字搜尋…"
+          }
+        ]
+      },
+      {
+        title: "輸入課程名稱",
+        actions: [
+          {
+            type: "type",
+            selector: "#searchWord",
+            text: "計算機概論"
+          }
+        ]
+      },
+      {
+        title: "送出課程搜尋",
+        actions: [
+          {
+            type: "confirmClick",
+            selector: 'input[type="submit"][value="Search"]',
+            prompt: "按 W 開始搜尋課程",
+            autoPrompt: "正在搜尋符合條件的課程…"
+          }
+        ]
+      },
+      {
+        title: "辨識資工系的計算機概論課程",
+        actions: [
+          {
+            type: "move",
+            selector: 'li[sno="52001"] span.class_no',
+            matchContext: {
+              ancestorSelector: 'li[sno="52001"]',
+              descendantMatches: [
+                { selector: "span.class_no", matchPrefix: "CE" },
+                { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
+              ]
+            },
+            timeout: 15000
+          }
+        ]
+      },
+      {
+        title: "開啟 CE 課程加選確認",
+        actions: [
+          {
+            type: "confirmClick",
+            selector: 'li[sno="52001"] img[src*="select_register.png"]',
+            x: 788,
+            y: 473,
+            duration: 300,
+            timeout: 1500,
+            matchContext: {
+              ancestorSelector: 'li[sno="52001"]',
+              revealAncestorSelector: 'li[sno="52001"]',
+              allowHidden: true
+            },
+            prompt: "按 W 開啟 CE 課程加選確認",
+            autoPrompt: "正在準備 CE 課程加選確認…"
+          }
+        ]
+      },
+      {
+        title: "確認送出 CE 課程加選",
+        actions: [
+          {
+            type: "confirmClick",
+            selector: 'input.dialog_submit[name="sumbit2"][value="加選"]',
+            prompt: "按 W 確認送出 CE 課程加選",
+            autoPrompt: "正在確認送出 CE 課程加選…",
+            timeout: 15000
+          }
+        ]
       }
     ]
   }

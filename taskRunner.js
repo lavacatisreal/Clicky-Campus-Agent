@@ -474,9 +474,15 @@ function hoverElement(element) {
     return;
   }
 
+  const targetWindow = element.ownerDocument?.defaultView ?? window;
+
   for (const type of ["mouseover", "mouseenter", "mousemove"]) {
     element.dispatchEvent(
-      new MouseEvent(type, { bubbles: type !== "mouseenter", cancelable: true, view: window })
+      new targetWindow.MouseEvent(type, {
+        bubbles: type !== "mouseenter",
+        cancelable: true,
+        view: targetWindow
+      })
     );
   }
 }
@@ -497,7 +503,15 @@ async function resolveActionTarget(run, action) {
   const deadline = Date.now() + (action.timeout ?? DEFAULT_TARGET_TIMEOUT_MS);
 
   while (Date.now() <= deadline) {
-    const target = findTargetBySelector(action.selector, action.matchText);
+    const target = findTargetBySelector(
+      action.selector,
+      action.matchText,
+      document,
+      0,
+      0,
+      action.matchPrefix,
+      action.matchContext
+    );
 
     if (target) {
       if (isInViewport(target)) {
@@ -507,7 +521,15 @@ async function resolveActionTarget(run, action) {
       target.element.scrollIntoView({ block: "center" });
       await run.wait(300);
 
-      return findTargetBySelector(action.selector, action.matchText) ?? target;
+      return findTargetBySelector(
+        action.selector,
+        action.matchText,
+        document,
+        0,
+        0,
+        action.matchPrefix,
+        action.matchContext
+      ) ?? target;
     }
 
     await run.wait(200);
@@ -526,12 +548,36 @@ async function resolveActionTarget(run, action) {
 }
 
 // 在最外層與同源 iframe 中尋找可見元素，回傳元素與它在最外層視窗的中心座標。
-// matchText 有值時，只接受文字（去掉前後空白）完全相同的元素。
-function findTargetBySelector(selector, matchText, doc = document, offsetX = 0, offsetY = 0) {
+// matchText 有值時只接受完全相同的文字；matchPrefix 有值時接受指定開頭的文字。
+function findTargetBySelector(
+  selector,
+  matchText,
+  doc = document,
+  offsetX = 0,
+  offsetY = 0,
+  matchPrefix,
+  matchContext
+) {
   // 同一個 selector 可能對到多個元素（例如隱藏的選單），取第一個看得到的。
   for (const element of doc.querySelectorAll(selector)) {
     if (matchText !== undefined && element.textContent.trim() !== matchText) {
       continue;
+    }
+
+    if (matchPrefix !== undefined && !element.textContent.trim().startsWith(matchPrefix)) {
+      continue;
+    }
+
+    if (!matchesTargetContext(element, matchContext)) {
+      continue;
+    }
+
+    if (matchContext?.revealAncestorSelector) {
+      const ancestor = element.closest(matchContext.revealAncestorSelector);
+
+      if (ancestor) {
+        hoverElement(ancestor);
+      }
     }
 
     const rect = element.getBoundingClientRect();
@@ -542,6 +588,21 @@ function findTargetBySelector(selector, matchText, doc = document, offsetX = 0, 
         x: offsetX + rect.left + rect.width / 2,
         y: offsetY + rect.top + rect.height / 2
       };
+    }
+
+    if (matchContext?.allowHidden) {
+      const anchor = element.closest(
+        matchContext.revealAncestorSelector ?? matchContext.ancestorSelector
+      );
+      const anchorRect = anchor?.getBoundingClientRect();
+
+      if (anchorRect && anchorRect.width > 0 && anchorRect.height > 0) {
+        return {
+          element,
+          x: offsetX + anchorRect.left + anchorRect.width / 2,
+          y: offsetY + anchorRect.top + anchorRect.height / 2
+        };
+      }
     }
   }
 
@@ -558,7 +619,9 @@ function findTargetBySelector(selector, matchText, doc = document, offsetX = 0, 
       matchText,
       childDoc,
       offsetX + frameRect.left + frame.clientLeft,
-      offsetY + frameRect.top + frame.clientTop
+      offsetY + frameRect.top + frame.clientTop,
+      matchPrefix,
+      matchContext
     );
 
     if (found) {
@@ -567,6 +630,41 @@ function findTargetBySelector(selector, matchText, doc = document, offsetX = 0, 
   }
 
   return null;
+}
+
+function matchesTargetContext(element, matchContext) {
+  if (!matchContext) {
+    return true;
+  }
+
+  const ancestor = element.closest(matchContext.ancestorSelector);
+
+  if (!ancestor) {
+    return false;
+  }
+
+  const descendantMatches = matchContext.descendantMatches ?? [
+    {
+      selector: matchContext.descendantSelector,
+      matchText: matchContext.descendantMatchText,
+      matchPrefix: matchContext.descendantMatchPrefix
+    }
+  ];
+
+  return descendantMatches.every((condition) => {
+    const descendant = ancestor.querySelector(condition.selector);
+
+    if (!descendant) {
+      return false;
+    }
+
+    const text = descendant.textContent.trim();
+
+    return (
+      (condition.matchText === undefined || text === condition.matchText) &&
+      (condition.matchPrefix === undefined || text.startsWith(condition.matchPrefix))
+    );
+  });
 }
 
 // 依最外層座標找元素；遇到同源 iframe 會往內找，跨域 iframe 則回傳 iframe 本身交給 clickAtCursor 轉發。

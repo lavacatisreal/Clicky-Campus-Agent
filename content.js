@@ -360,15 +360,64 @@ function createRippleAnimation(x, y) {
 // skipClick：只顯示點擊效果不真的點（例如由 background 代開新分頁時）
 function doActualClick(el, { skipClick = false } = {}) {
     console.log("[*] 點擊成功！目標元素：", el);
+  revealClickTarget(el);
+  const targetWindow = el.ownerDocument?.defaultView ?? window;
     const originalBoxShadow = el.style.boxShadow;
     const originalTransition = el.style.transition;
     el.style.transition = 'box-shadow 0.2s';
     el.style.boxShadow = "0 0 15px 5px rgba(231, 76, 60, 0.9)";
-    if (!skipClick) el.click();
+  if (!skipClick) {
+      const rect = el.getBoundingClientRect();
+      const eventOptions = {
+        bubbles: true,
+        cancelable: true,
+        view: targetWindow,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        button: 0,
+        buttons: 1
+      };
+
+      if (typeof targetWindow.PointerEvent === 'function') {
+        el.dispatchEvent(new targetWindow.PointerEvent('pointerover', { ...eventOptions, pointerId: 1, pointerType: 'mouse' }));
+        el.dispatchEvent(new targetWindow.PointerEvent('pointerdown', { ...eventOptions, pointerId: 1, pointerType: 'mouse' }));
+      }
+      el.dispatchEvent(new targetWindow.MouseEvent('mouseover', eventOptions));
+      el.dispatchEvent(new targetWindow.MouseEvent('mousedown', eventOptions));
+      el.dispatchEvent(new targetWindow.MouseEvent('mouseup', eventOptions));
+      if (typeof targetWindow.PointerEvent === 'function') {
+        el.dispatchEvent(new targetWindow.PointerEvent('pointerup', { ...eventOptions, pointerId: 1, pointerType: 'mouse' }));
+      }
+      const elementPrototype = targetWindow.HTMLElement?.prototype;
+      if (elementPrototype?.click) {
+        elementPrototype.click.call(el);
+      } else {
+        el.click();
+      }
+  }
     setTimeout(() => { 
         el.style.boxShadow = originalBoxShadow; 
         el.style.transition = originalTransition;
     }, 400);
+}
+
+function revealClickTarget(element) {
+  const menu = element.closest?.('.append_menu');
+  const row = element.closest?.('li[sno]');
+
+  if (row) {
+    hoverElement(row);
+  }
+
+  if (menu && getComputedStyle(menu).display === 'none') {
+    menu.style.setProperty('display', 'inline', 'important');
+  }
+
+  // CSS :hover 無法由 dispatchEvent 建立，直接讓目標元素取得可點擊的版面。
+  if (element?.style) {
+    element.style.setProperty('visibility', 'visible', 'important');
+    element.style.setProperty('pointer-events', 'auto', 'important');
+  }
 }
 // --- 游標控制（AI_FLY / AI_CLICK 與 taskRunner.js 腳本共用）---
 function flyCursorTo(x, y, duration = 800) {
@@ -632,16 +681,16 @@ document.addEventListener('keydown', (e) => {
     // 💡 防呆 1：如果使用者長按著鍵盤不放，直接忽略，避免重複觸發
     if (e.repeat) return;
 
+  const key = e.key.toLowerCase();
+
+  // 腳本等待確認時，即使焦點仍在課程搜尋輸入框，也要優先處理 W。
+  if (key === 'w' && !e.isComposing && !e.ctrlKey && !e.altKey && !e.metaKey && confirmPendingClick()) {
+    e.preventDefault();
+    return;
+  }
+
     // 💡 防呆 2：在輸入框打字、中文輸入法選字中、或按組合鍵（Ctrl+Q 等）時不觸發
     if (isEditableTarget(e) || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
-
-    const key = e.key.toLowerCase();
-
-    // 💡 腳本正在等使用者確認點擊（confirmClick 動作）
-    if (key === 'w' && confirmPendingClick()) {
-        e.preventDefault();
-        return;
-    }
 
     if (key === 'q' && isTaskRunning) {
         showSpeechBox("任務執行中，完成後再按 Q 下達新指令。", {

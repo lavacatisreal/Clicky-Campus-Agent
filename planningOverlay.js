@@ -50,39 +50,38 @@
   });
 
   const shadow = host.attachShadow({ mode: "open" });
+  const logoUrl = chrome.runtime.getURL("assets/icons/campux-128.png");
 
   shadow.innerHTML = `
     <style>
       :host {
         all: initial;
 
-        /* 深色主題（預設） */
-        --bg:
-          radial-gradient(circle at top right, rgba(79, 70, 229, 0.32), transparent 44%),
-          linear-gradient(145deg, #111827, #1f2937);
-        --border: rgba(148, 163, 184, 0.26);
-        --shadow: 0 18px 55px rgba(0, 0, 0, 0.42);
-        --divider: rgba(148, 163, 184, 0.18);
+        /* Fluent 深色主題 */
+        --bg: #292929;
+        --border: #525252;
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.36);
+        --divider: #484848;
         --text-strong: #ffffff;
-        --text: #e2e8f0;
-        --text-soft: #cbd5e1;
-        --text-muted: #94a3b8;
-        --text-faint: #64748b;
-        --accent-text: #a5b4fc;
-        --hover-bg: rgba(255, 255, 255, 0.10);
-        --chip-bg: rgba(148, 163, 184, 0.14);
-        --chip-border: rgba(148, 163, 184, 0.2);
-        --chip-text: #cbd5e1;
-        --surface: rgba(15, 23, 42, 0.30);
-        --surface-border: rgba(148, 163, 184, 0.12);
-        --mark-bg: rgba(148, 163, 184, 0.10);
-        --mark-border: rgba(148, 163, 184, 0.22);
-        --transcript-bg: rgba(15, 23, 42, 0.58);
-        --transcript-border: rgba(96, 165, 250, 0.26);
-        --transcript-text: #dbeafe;
-        --track: rgba(148, 163, 184, 0.16);
+        --text: #f5f5f5;
+        --text-soft: #d6d6d6;
+        --text-muted: #adadad;
+        --text-faint: #8a8a8a;
+        --accent-text: #75b6e7;
+        --hover-bg: rgba(255, 255, 255, 0.08);
+        --chip-bg: #333333;
+        --chip-border: #525252;
+        --chip-text: #d6d6d6;
+        --surface: #333333;
+        --surface-border: #484848;
+        --mark-bg: #3d3d3d;
+        --mark-border: #666666;
+        --transcript-bg: #333333;
+        --transcript-border: #525252;
+        --transcript-text: #ffffff;
+        --track: #525252;
         --shimmer: rgba(255, 255, 255, 0.22);
-        --progress-head: #c7d2fe;
+        --progress-head: #75b6e7;
         --blue-text: #dbeafe;
         --blue-bg: rgba(59, 130, 246, 0.13);
         --blue-border: rgba(96, 165, 250, 0.45);
@@ -101,42 +100,40 @@
         --red-bg: rgba(225, 29, 72, 0.12);
         --red-border: rgba(251, 113, 133, 0.45);
         --red-head: #fda4af;
-        --info-text: #e0e7ff;
-        --info-bg: rgba(99, 102, 241, 0.14);
-        --info-border: rgba(129, 140, 248, 0.4);
+        --info-text: #cfe4fa;
+        --info-bg: rgba(15, 108, 189, 0.20);
+        --info-border: rgba(117, 182, 231, 0.45);
       }
 
       /* 淺色主題 */
       :host([data-theme="light"]) {
-        --bg:
-          radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 44%),
-          linear-gradient(145deg, #ffffff, #f8fafc);
-        --border: rgba(15, 23, 42, 0.12);
-        --shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
-        --divider: rgba(15, 23, 42, 0.08);
-        --text-strong: #0f172a;
-        --text: #1e293b;
-        --text-soft: #475569;
-        --text-muted: #64748b;
-        --text-faint: #94a3b8;
-        --accent-text: #4f46e5;
-        --hover-bg: rgba(15, 23, 42, 0.06);
-        --chip-bg: #f1f5f9;
-        --chip-border: #e2e8f0;
-        --chip-text: #334155;
-        --surface: #f8fafc;
-        --surface-border: #e2e8f0;
-        --mark-bg: #f1f5f9;
-        --mark-border: #cbd5e1;
-        --transcript-bg: #eef2ff;
-        --transcript-border: #c7d2fe;
-        --transcript-text: #1e3a8a;
-        --track: #e2e8f0;
+        --bg: #ffffff;
+        --border: #d1d1d1;
+        --shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+        --divider: #e0e0e0;
+        --text-strong: #242424;
+        --text: #424242;
+        --text-soft: #616161;
+        --text-muted: #707070;
+        --text-faint: #8a8a8a;
+        --accent-text: #0f6cbd;
+        --hover-bg: #f5f5f5;
+        --chip-bg: #f5f5f5;
+        --chip-border: #d1d1d1;
+        --chip-text: #424242;
+        --surface: #fafafa;
+        --surface-border: #e0e0e0;
+        --mark-bg: #f5f5f5;
+        --mark-border: #b3b3b3;
+        --transcript-bg: #f5faff;
+        --transcript-border: #b4d6fa;
+        --transcript-text: #0f548c;
+        --track: #e0e0e0;
         --shimmer: rgba(255, 255, 255, 0.7);
-        --progress-head: #4338ca;
-        --blue-text: #1d4ed8;
-        --blue-bg: #eff6ff;
-        --blue-border: #93c5fd;
+        --progress-head: #0f6cbd;
+        --blue-text: #0f548c;
+        --blue-bg: #eff6fc;
+        --blue-border: #62abdc;
         --green-text: #047857;
         --green-bg: #ecfdf5;
         --green-border: #a7f3d0;
@@ -152,9 +149,9 @@
         --red-bg: #fff1f2;
         --red-border: #fda4af;
         --red-head: #e11d48;
-        --info-text: #3730a3;
-        --info-bg: #eef2ff;
-        --info-border: #a5b4fc;
+        --info-text: #0f548c;
+        --info-bg: #eff6fc;
+        --info-border: #b4d6fa;
       }
 
       * {
@@ -175,16 +172,13 @@
         color: var(--text);
         background: var(--bg);
         border: 1px solid var(--border);
-        border-radius: 18px;
+        border-radius: 8px;
         box-shadow: var(--shadow);
         font-family:
-          Inter,
-          ui-sans-serif,
-          system-ui,
-          -apple-system,
-          BlinkMacSystemFont,
+          "Segoe UI Variable",
           "Segoe UI",
           "Microsoft JhengHei",
+          system-ui,
           sans-serif;
         pointer-events: auto;
       }
@@ -286,16 +280,16 @@
       }
 
       .logo {
-        display: grid;
         flex: 0 0 auto;
-        width: 30px;
-        height: 30px;
-        color: #ffffff;
-        background: linear-gradient(135deg, #6366f1, #a855f7);
-        border-radius: 10px;
-        place-items: center;
-        font-size: 15px;
-        font-weight: 800;
+        width: 32px;
+        height: 32px;
+      }
+
+      .logo img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
       }
 
       .title-wrap {
@@ -307,7 +301,7 @@
         color: var(--text-strong);
         font-size: 14px;
         font-weight: 750;
-        letter-spacing: 0.01em;
+        letter-spacing: 0;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
@@ -470,26 +464,12 @@
       }
 
       .analyzing-icon {
-        display: grid;
-        width: 52px;
-        height: 52px;
-        color: #ffffff;
-        background: linear-gradient(135deg, #6366f1, #a855f7);
-        border-radius: 17px;
-        box-shadow: 0 10px 28px rgba(99, 102, 241, 0.35);
-        place-items: center;
-        font-size: 24px;
-        animation: analyzing-float 1.4s ease-in-out infinite;
-      }
-
-      @keyframes analyzing-float {
-        0%, 100% {
-          transform: translateY(0) scale(1);
-        }
-
-        50% {
-          transform: translateY(-5px) scale(1.04);
-        }
+        width: 32px;
+        height: 32px;
+        border: 3px solid var(--track);
+        border-top-color: #0f6cbd;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
       }
 
       .analyzing-title {
@@ -628,7 +608,7 @@
       .progress-fill {
         width: 0;
         height: 100%;
-        background: linear-gradient(90deg, #6366f1, #60a5fa);
+        background: #0f6cbd;
         border-radius: inherit;
         transition: width 500ms ease, background 300ms ease;
       }
@@ -771,7 +751,7 @@
       }
 
       .task-result.info .result-icon {
-        background: #6366f1;
+        background: #0f6cbd;
       }
 
       .step.error {
@@ -853,6 +833,51 @@
 
       /* ----- Footer ----- */
 
+      .test-request {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .test-request-input {
+        min-width: 0;
+        padding: 8px 10px;
+        color: var(--text-strong);
+        background: var(--surface);
+        border: 1px solid var(--surface-border);
+        border-radius: 4px;
+        outline: none;
+        font-family: inherit;
+        font-size: 12px;
+      }
+
+      .test-request-input:focus {
+        border-color: #60a5fa;
+        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
+      }
+
+      .test-request-button {
+        padding: 8px 12px;
+        color: #ffffff;
+        background: #0f6cbd;
+        border: 1px solid #0f6cbd;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .test-request-button:hover:not(:disabled) {
+        background: #115ea3;
+      }
+
+      .test-request-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
       .footer {
         display: flex;
         align-items: center;
@@ -871,7 +896,7 @@
         padding: 3px;
         background: var(--chip-bg);
         border: 1px solid var(--chip-border);
-        border-radius: 10px;
+        border-radius: 6px;
       }
 
       .mode-option {
@@ -879,7 +904,7 @@
         color: var(--text-muted);
         background: transparent;
         border: 0;
-        border-radius: 7px;
+        border-radius: 4px;
         cursor: pointer;
         font-family: inherit;
         font-size: 12px;
@@ -892,7 +917,7 @@
 
       .mode-option.active {
         color: #ffffff;
-        background: linear-gradient(135deg, #6366f1, #a855f7);
+        background: #0f6cbd;
       }
 
       .reset {
@@ -900,7 +925,7 @@
         color: var(--text);
         background: var(--chip-bg);
         border: 1px solid var(--chip-border);
-        border-radius: 9px;
+        border-radius: 4px;
         cursor: pointer;
         font-family: inherit;
         font-size: 12px;
@@ -915,7 +940,7 @@
     <section class="card" id="card" aria-live="polite">
       <header class="header" id="header" title="拖曳可移動，雙擊恢復預設位置與大小">
         <div class="brand">
-          <div class="logo">✦</div>
+          <div class="logo" aria-hidden="true"><img src="${logoUrl}" alt="" /></div>
 
           <div class="title-wrap">
             <div class="title">Clicky Campus Agent</div>
@@ -943,7 +968,7 @@
 
         <!-- 畫面 2：辨認需求 → 檢索流程 → 產生規劃 -->
         <section class="view analyzing-view" id="analyzingView" hidden>
-          <div class="analyzing-icon">✦</div>
+          <div class="analyzing-icon" aria-hidden="true"></div>
           <div class="analyzing-title" id="analyzingTitle">正在辨認需求</div>
           <div class="analyzing-message" id="analyzingMessage"></div>
           <ol class="pipeline" id="pipeline"></ol>
@@ -986,6 +1011,16 @@
       </div>
 
       <div class="card-footer">
+        <div class="test-request">
+          <input
+            class="test-request-input"
+            id="testRequestInput"
+            type="text"
+            value="幫我加選課程"
+            aria-label="測試指令"
+          />
+          <button class="test-request-button" id="testRequestButton" type="button">執行測試</button>
+        </div>
         <footer class="footer">
           <div class="mode-switch" role="group" aria-label="執行模式">
             <button class="mode-option" id="manualModeButton" type="button" title="每一步點擊前等你按 W 確認">手動</button>
@@ -1041,6 +1076,8 @@
     manualModeButton: shadow.querySelector("#manualModeButton"),
     autoModeButton: shadow.querySelector("#autoModeButton"),
     confirmShortcut: shadow.querySelector("#confirmShortcut"),
+    testRequestInput: shadow.querySelector("#testRequestInput"),
+    testRequestButton: shadow.querySelector("#testRequestButton"),
     minimizeButton: shadow.querySelector("#minimizeButton"),
     closeButton: shadow.querySelector("#closeButton"),
     resetButton: shadow.querySelector("#resetButton")
@@ -1137,6 +1174,10 @@
     renderVoiceView();
     renderAnalyzingView();
     renderStepsView(progress);
+
+    const canStartTest = [Stage.IDLE, Stage.COMPLETED, Stage.ERROR].includes(state.stage);
+    elements.testRequestInput.disabled = !canStartTest;
+    elements.testRequestButton.disabled = !canStartTest;
 
     elements.card.classList.toggle("minimized", state.isMinimized);
     elements.minimizeButton.textContent = state.isMinimized ? "+" : "−";
@@ -1394,6 +1435,29 @@
 
   elements.manualModeButton.addEventListener("click", () => clickModeSetting.set("manual"));
   elements.autoModeButton.addEventListener("click", () => clickModeSetting.set("auto"));
+
+  function submitTestRequest() {
+    const transcript = elements.testRequestInput.value.trim();
+
+    if (!transcript || elements.testRequestButton.disabled) {
+      elements.testRequestInput.focus();
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("clicky:test-request", {
+        detail: { transcript, source: "planning-overlay" }
+      })
+    );
+  }
+
+  elements.testRequestButton.addEventListener("click", submitTestRequest);
+  elements.testRequestInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitTestRequest();
+    }
+  });
 
   elements.minimizeButton.addEventListener("click", () => {
     updateState({ isMinimized: !state.isMinimized });

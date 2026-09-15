@@ -71,7 +71,7 @@ function createSyncedSetting(storageKey, allowedValues) {
 }
 
 // Overlay 與游標旁對話框共用
-const themeSetting = createSyncedSetting("clickyTheme", ["dark", "light"]);
+const themeSetting = createSyncedSetting("clickyTheme", ["light", "dark"]);
 // manual：每次 confirmClick 前等使用者按 W；auto：游標到位後自動點擊
 const clickModeSetting = createSyncedSetting("clickyClickMode", ["manual", "auto"]);
 const oldCursor = document.getElementById('ai-fake-cursor');
@@ -91,7 +91,7 @@ fakeCursor.style.transition = normalTransition;
 
 fakeCursor.innerHTML = `
     <svg viewBox="0 0 24 24" width="30" height="30" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="5,3 18,16 12,17 9,22 5,3" fill="#3498db" stroke="white" stroke-width="1.5" />
+        <polygon points="5,3 18,16 12,17 9,22 5,3" fill="#0f6cbd" stroke="white" stroke-width="1.5" />
     </svg>
 `;
 const defaultCursorHtml = fakeCursor.innerHTML;
@@ -141,8 +141,8 @@ Object.assign(thinkingSpinner.style, {
   height: '22px',
   margin: '4px',
   boxSizing: 'border-box',
-  border: '3px solid rgba(107, 114, 128, 0.25)',
-  borderTopColor: '#6b7280',
+  border: '3px solid rgba(15, 108, 189, 0.22)',
+  borderTopColor: '#0f6cbd',
   borderRadius: '50%'
 });
 let thinkingSpinnerAnimation = null;
@@ -184,7 +184,7 @@ function setCursorState(state) {
       opacity: '1'
     },
     thinking: {
-      filter: 'drop-shadow(0 0 10px rgba(155, 89, 182, 0.95))',
+      filter: 'drop-shadow(0 0 8px rgba(15, 108, 189, 0.72))',
       transform: 'scale(1.1)',
       opacity: '1'
     },
@@ -210,14 +210,14 @@ const SPEECH_BOX_TONES = {
   dark: {
     normal: { background: 'rgba(20, 24, 33, 0.92)', border: '1px solid rgba(255, 255, 255, 0.16)', color: '#ffffff' },
     listening: { background: 'rgba(120, 30, 36, 0.94)', border: '1px solid rgba(255, 100, 110, 0.75)', color: '#ffffff' },
-    thinking: { background: 'rgba(66, 41, 109, 0.94)', border: '1px solid rgba(180, 128, 255, 0.75)', color: '#ffffff' },
+    thinking: { background: 'rgba(15, 84, 140, 0.96)', border: '1px solid rgba(117, 182, 231, 0.75)', color: '#ffffff' },
     success: { background: 'rgba(24, 92, 65, 0.94)', border: '1px solid rgba(90, 230, 170, 0.75)', color: '#ffffff' },
     error: { background: 'rgba(126, 35, 35, 0.96)', border: '1px solid rgba(255, 120, 120, 0.8)', color: '#ffffff' }
   },
   light: {
     normal: { background: 'rgba(255, 255, 255, 0.97)', border: '1px solid #cbd5e1', color: '#0f172a' },
     listening: { background: 'rgba(255, 241, 242, 0.97)', border: '1px solid #fb7185', color: '#9f1239' },
-    thinking: { background: 'rgba(245, 243, 255, 0.97)', border: '1px solid #a78bfa', color: '#5b21b6' },
+    thinking: { background: 'rgba(239, 246, 252, 0.98)', border: '1px solid #62abdc', color: '#0f548c' },
     success: { background: 'rgba(236, 253, 245, 0.97)', border: '1px solid #34d399', color: '#065f46' },
     error: { background: 'rgba(255, 241, 242, 0.98)', border: '1px solid #f43f5e', color: '#be123c' }
   }
@@ -780,4 +780,23 @@ window.addEventListener("clicky:reset-request", () => {
   });
 
   emitPlanningOverlayEvent("clicky:task-reset");
+});
+
+window.addEventListener("clicky:test-request", (event) => {
+  const transcript = event.detail?.transcript?.trim();
+
+  if (!isTopWindow || !transcript) {
+    return;
+  }
+
+  console.log("[*] 收到文字測試指令:", transcript);
+
+  if (recognition && isListening) {
+    recognition.abort();
+  }
+
+  isListening = false;
+  heardTranscript = "";
+  clearListenTimers();
+  handleFinalTranscript(transcript);
 });

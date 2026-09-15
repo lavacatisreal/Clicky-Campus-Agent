@@ -20,6 +20,14 @@ const UUID_REGEX =
 app.use(express.json({ limit: "50kb" }));
 app.use(express.static("public"));
 
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "Clicky Campus Agent API",
+    endpoints: ["POST /api/chat", "POST /api/tts"],
+  });
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const {

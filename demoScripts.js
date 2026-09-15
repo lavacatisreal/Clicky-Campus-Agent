@@ -135,7 +135,7 @@ const CLICKY_DEMO_SCENARIOS = [
         ]
       },
       {
-        title: "開啟 CE 課程加選確認",
+        title: "點擊登記加選",
         actions: [
           {
             type: "confirmClick",

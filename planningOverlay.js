@@ -1016,7 +1016,7 @@
             class="test-request-input"
             id="testRequestInput"
             type="text"
-            value="幫我加選課程"
+            value="幫我加選資工系的計算機概論"
             aria-label="測試指令"
           />
           <button class="test-request-button" id="testRequestButton" type="button">執行測試</button>

@@ -445,6 +445,8 @@ async function runAction(run, action, progress) {
 
       clickAtCursor(target.element);
       await typeText(run, target.element, action.text ?? "", action.charDelayMs);
+      target.element.blur();
+      target.element.ownerDocument?.body?.focus();
       return;
     }
 

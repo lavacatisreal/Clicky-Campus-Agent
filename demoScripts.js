@@ -5,6 +5,10 @@
 //   { type: "move",  selector?, x?, y?, duration? }            游標飛到目標
 //   { type: "click", selector?, x?, y?, duration?, afterMs? }  有目標就先飛過去再點；沒有目標就點游標目前位置
 //   { type: "type",  selector?, x?, y?, text, charDelayMs? }   點擊輸入框並逐字輸入
+//   { type: "waitForHoverTarget", selector, prompt?, timeout? } 等待使用者以真實滑鼠 hover，直到目標出現
+//   { type: "waitForUserClick", selector, resultSelector }      指向目標，等待使用者真實點擊後的結果出現
+//   { type: "mainWorldHover", selector, resultSelector }        在頁面 Main World 觸發網站的 hover handler
+//   { type: "mainWorldClick", selector, resultSelector }        在頁面 Main World 觸發網站的 click handler
 //   { type: "confirmClick", selector?, x?, y?, prompt?, autoPrompt? }
 //                                                               手動模式：游標飛到目標後停住，等使用者按 W 才點擊（顯示 prompt）
 //                                                               自動模式：游標到位後自動點擊（顯示 autoPrompt）
@@ -122,9 +126,10 @@ const CLICKY_DEMO_SCENARIOS = [
         actions: [
           {
             type: "move",
-            selector: 'li[sno="52001"] span.class_no',
+            selector: "li[sno] span.class_no",
+            matchPrefix: "CE",
             matchContext: {
-              ancestorSelector: 'li[sno="52001"]',
+              ancestorSelector: "li[sno]",
               descendantMatches: [
                 { selector: "span.class_no", matchPrefix: "CE" },
                 { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
@@ -138,19 +143,41 @@ const CLICKY_DEMO_SCENARIOS = [
         title: "點擊登記加選",
         actions: [
           {
-            type: "confirmClick",
-            selector: 'li[sno="52001"] img[src*="select_register.png"]',
-            x: 788,
-            y: 473,
-            duration: 300,
-            timeout: 1500,
+            type: "mainWorldHover",
+            selector: "li[sno]",
             matchContext: {
-              ancestorSelector: 'li[sno="52001"]',
-              revealAncestorSelector: 'li[sno="52001"]',
-              allowHidden: true
+              ancestorSelector: "li[sno]",
+              descendantMatches: [
+                { selector: "span.class_no", matchPrefix: "CE" },
+                { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
+              ]
             },
-            prompt: "按 W 開啟 CE 課程加選確認",
-            autoPrompt: "正在準備 CE 課程加選確認…"
+            resultSelector: 'li[sno] .append_menu img#fm_register, li[sno] .append_menu img[title="登記加選"], li[sno] .append_menu img[src*="select_register"]',
+            resultMatchContext: {
+              ancestorSelector: "li[sno]",
+              descendantMatches: [
+                { selector: "span.class_no", matchPrefix: "CE" },
+                { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
+              ]
+            },
+            timeout: 15000,
+            timeoutMessage: "Main World hover 後仍未出現登記加選 icon。"
+          },
+          {
+            type: "mainWorldClick",
+            selector: 'li[sno] .append_menu img#fm_register, li[sno] .append_menu img[title="登記加選"], li[sno] .append_menu img[src*="select_register"]',
+            duration: 300,
+            resultSelector: '#dlgSignPassword, .ui-dialog[aria-describedby="dlgSignPassword"]',
+            timeout: 15000,
+            matchContext: {
+              ancestorSelector: "li[sno]",
+              descendantMatches: [
+                { selector: "span.class_no", matchPrefix: "CE" },
+                { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
+              ]
+            },
+            message: "已在網站頁面觸發登記加選",
+            timeoutMessage: "Main World 點擊後仍未開啟課程加選確認視窗。"
           }
         ]
       },
@@ -159,7 +186,11 @@ const CLICKY_DEMO_SCENARIOS = [
         actions: [
           {
             type: "confirmClick",
-            selector: 'input.dialog_submit[name="sumbit2"][value="加選"]',
+            mainWorld: true,
+            selector: '.ui-dialog input, .ui-dialog button, input.dialog_submit, button.dialog_submit, input[type="submit"], button[type="submit"]',
+            matchContext: {
+              targetLabel: "加選"
+            },
             prompt: "按 W 確認送出 CE 課程加選",
             autoPrompt: "正在確認送出 CE 課程加選…",
             timeout: 15000

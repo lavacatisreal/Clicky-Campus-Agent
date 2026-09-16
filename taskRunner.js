@@ -157,6 +157,7 @@ function beginRun() {
 
   const run = {
     stepIndex: -1,
+    retainedTarget: null,
     isCancelled: () => id !== taskRunId,
     async wait(ms) {
       await sleep(ms);
@@ -358,7 +359,11 @@ async function autoClick(run, action, target, progress) {
   await run.wait(AUTO_CLICK_DELAY_MS);
 
   if (!action.opensNewTab) {
-    clickAtCursor(target.element);
+    if (action.mainWorld) {
+      await invokeMainWorldEvent(target.element, "click", action);
+    } else {
+      clickAtCursor(target.element);
+    }
     return;
   }
 
@@ -387,6 +392,90 @@ async function runAction(run, action, progress) {
       await run.wait(action.ms ?? 1000);
       return;
 
+    case "waitForHoverTarget": {
+      const prompt = action.prompt ?? "請將真實滑鼠移到目標項目上。";
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "waiting",
+        waitingKind: "hover",
+        message: prompt
+      });
+      showSpeechBox(prompt, { tone: "normal" });
+
+      run.retainedTarget = await waitForActionTarget(run, action);
+
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "running",
+        message: action.detectedMessage ?? "已偵測到操作按鈕。"
+      });
+      showSpeechBox(action.detectedMessage ?? "已偵測到操作按鈕。", { tone: "success" });
+      return;
+    }
+
+    case "waitForUserClick": {
+      const target = takeRetainedTarget(run, { useRetainedTarget: true }) ??
+        await resolveActionTarget(run, action);
+      await moveCursorTo(run, target, action.duration);
+
+      const prompt = action.prompt ?? "請用真實滑鼠點擊目標。";
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "waiting",
+        waitingKind: "userClick",
+        message: prompt
+      });
+      showSpeechBox(prompt, { tone: "normal" });
+
+      await waitForActionTarget(run, {
+        selector: action.resultSelector,
+        timeout: action.timeout,
+        timeoutMessage: action.timeoutMessage
+      });
+
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "running",
+        message: action.detectedMessage ?? "已偵測到確認視窗。"
+      });
+      showSpeechBox(action.detectedMessage ?? "已偵測到確認視窗。", { tone: "success" });
+      return;
+    }
+
+    case "mainWorldHover": {
+      const target = await resolveActionTarget(run, action);
+      await moveCursorTo(run, target, action.duration);
+      await invokeMainWorldEvent(target.element, "hover", action);
+
+      run.retainedTarget = await waitForActionTarget(run, {
+        selector: action.resultSelector,
+        matchContext: action.resultMatchContext,
+        timeout: action.timeout,
+        timeoutMessage: action.timeoutMessage
+      });
+      return;
+    }
+
+    case "mainWorldClick": {
+      const target = takeRetainedTarget(run, { useRetainedTarget: true }) ??
+        await resolveActionTarget(run, action);
+      await moveCursorTo(run, target, action.duration);
+      const result = await invokeMainWorldEvent(target.element, "click", action);
+
+      emitPlanningOverlayEvent("clicky:step-update", {
+        stepIndex: run.stepIndex,
+        status: "running",
+        message: `${action.message ?? "已觸發頁面點擊"}（${result.method}）`
+      });
+
+      await waitForActionTarget(run, {
+        selector: action.resultSelector,
+        timeout: action.timeout,
+        timeoutMessage: action.timeoutMessage
+      });
+      return;
+    }
+
     case "move": {
       const target = await resolveActionTarget(run, action);
       await moveCursorTo(run, target, action.duration);
@@ -407,7 +496,7 @@ async function runAction(run, action, progress) {
     }
 
     case "confirmClick": {
-      const target = await resolveActionTarget(run, action);
+      const target = takeRetainedTarget(run, action) ?? await resolveActionTarget(run, action);
       await moveCursorTo(run, target, action.duration);
 
       if (clickModeSetting.value === "auto") {
@@ -417,6 +506,7 @@ async function runAction(run, action, progress) {
         emitPlanningOverlayEvent("clicky:step-update", {
           stepIndex: run.stepIndex,
           status: "waiting",
+          waitingKind: "confirm",
           message: prompt
         });
         showSpeechBox(prompt, { tone: "success" });
@@ -463,6 +553,128 @@ function hasCoordinates(action) {
   return Number.isFinite(action.x) && Number.isFinite(action.y);
 }
 
+async function invokeMainWorldEvent(element, eventType, action) {
+  const marker = crypto.randomUUID();
+  element.setAttribute("data-clicky-main-target", marker);
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "CLICKY_MAIN_WORLD_EVENT",
+      marker,
+      eventType,
+      locator: {
+        selector: action.selector,
+        matchText: action.matchText,
+        matchPrefix: action.matchPrefix,
+        matchContext: action.matchContext
+      }
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error ?? `Main World ${eventType} 失敗。`);
+    }
+
+    console.log(`[Clicky] Main World ${eventType}:`, response.method, response.source);
+    return response;
+  } finally {
+    element.removeAttribute("data-clicky-main-target");
+  }
+}
+
+function takeRetainedTarget(run, action) {
+  if (!action.useRetainedTarget) {
+    return null;
+  }
+
+  const target = run.retainedTarget;
+  run.retainedTarget = null;
+
+  if (!target?.element?.isConnected) {
+    return null;
+  }
+
+  const rect = target.element.getBoundingClientRect();
+
+  if (rect.width <= 0 || rect.height <= 0) {
+    return null;
+  }
+
+  return {
+    element: target.element,
+    x: target.x - (target.rectLeft ?? rect.left) + rect.left,
+    y: target.y - (target.rectTop ?? rect.top) + rect.top
+  };
+}
+
+async function waitForActionTarget(run, action) {
+  const deadline = Date.now() + (action.timeout ?? 60000);
+
+  while (Date.now() <= deadline) {
+    const target = findTargetBySelector(
+      action.selector,
+      action.matchText,
+      document,
+      0,
+      0,
+      action.matchPrefix,
+      action.matchContext
+    );
+
+    if (target) {
+      const rect = target.element.getBoundingClientRect();
+      return {
+        ...target,
+        rectLeft: rect.left,
+        rectTop: rect.top
+      };
+    }
+
+    await run.wait(100);
+  }
+
+  throw new Error(action.timeoutMessage ?? describeTargetWaitFailure(action));
+}
+
+function describeTargetWaitFailure(action) {
+  const matchContext = action.matchContext;
+
+  if (!matchContext?.ancestorSelector) {
+    return `等待目標元素逾時：${action.selector}`;
+  }
+
+  const row = findTargetBySelector(
+    matchContext.ancestorSelector,
+    undefined,
+    document,
+    0,
+    0,
+    undefined,
+    { ...matchContext, revealAncestorSelector: undefined, allowHidden: false }
+  )?.element;
+
+  if (!row) {
+    return "找不到符合課號與課名的課程列。";
+  }
+
+  const menu = row.querySelector(".append_menu");
+
+  if (!menu) {
+    return "已找到課程列，但其中沒有 .append_menu。";
+  }
+
+  const icons = [...menu.querySelectorAll("img")];
+
+  if (icons.length === 0) {
+    return "已找到課程列，但滑鼠移入後 append_menu 仍是空的。";
+  }
+
+  const iconSummary = icons
+    .map((icon) => icon.title || icon.id || icon.getAttribute("src") || "未命名 icon")
+    .join("、");
+
+  return `append_menu 已出現 ${icons.length} 個 icon，但沒有符合登記加選：${iconSummary}`;
+}
+
 async function moveCursorTo(run, target, duration = DEFAULT_MOVE_MS) {
   flyCursorTo(target.x, target.y, duration);
   await run.wait(duration + 120);
@@ -477,13 +689,37 @@ function hoverElement(element) {
   }
 
   const targetWindow = element.ownerDocument?.defaultView ?? window;
+  const rect = element.getBoundingClientRect();
+  const eventOptions = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    view: targetWindow,
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+    button: 0,
+    buttons: 0
+  };
+
+  if (typeof targetWindow.PointerEvent === "function") {
+    for (const type of ["pointerover", "pointerenter", "pointermove"]) {
+      element.dispatchEvent(
+        new targetWindow.PointerEvent(type, {
+          ...eventOptions,
+          bubbles: type !== "pointerenter",
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true
+        })
+      );
+    }
+  }
 
   for (const type of ["mouseover", "mouseenter", "mousemove"]) {
     element.dispatchEvent(
       new targetWindow.MouseEvent(type, {
-        bubbles: type !== "mouseenter",
-        cancelable: true,
-        view: targetWindow
+        ...eventOptions,
+        bubbles: type !== "mouseenter"
       })
     );
   }
@@ -505,6 +741,8 @@ async function resolveActionTarget(run, action) {
   const deadline = Date.now() + (action.timeout ?? DEFAULT_TARGET_TIMEOUT_MS);
 
   while (Date.now() <= deadline) {
+    await revealActionAncestor(run, action);
+
     const target = findTargetBySelector(
       action.selector,
       action.matchText,
@@ -549,6 +787,42 @@ async function resolveActionTarget(run, action) {
   throw new Error(`找不到目標元素：${action.selector}${action.matchText ? `（文字「${action.matchText}」）` : ""}`);
 }
 
+async function revealActionAncestor(run, action) {
+  const revealSelector = action.matchContext?.revealAncestorSelector;
+
+  if (!revealSelector) {
+    return;
+  }
+
+  const revealContext = {
+    ...action.matchContext,
+    revealAncestorSelector: undefined,
+    allowHidden: false
+  };
+  const target = findTargetBySelector(
+    revealSelector,
+    undefined,
+    document,
+    0,
+    0,
+    undefined,
+    revealContext
+  );
+
+  if (!target) {
+    return;
+  }
+
+  if (!isInViewport(target)) {
+    target.element.scrollIntoView({ block: "center" });
+    await run.wait(300);
+  }
+
+  hoverElement(target.element);
+  revealClickTarget(target.element);
+  await run.wait(action.revealDelayMs ?? 200);
+}
+
 // 在最外層與同源 iframe 中尋找可見元素，回傳元素與它在最外層視窗的中心座標。
 // matchText 有值時只接受完全相同的文字；matchPrefix 有值時接受指定開頭的文字。
 function findTargetBySelector(
@@ -579,6 +853,7 @@ function findTargetBySelector(
 
       if (ancestor) {
         hoverElement(ancestor);
+        revealClickTarget(element);
       }
     }
 
@@ -639,6 +914,17 @@ function matchesTargetContext(element, matchContext) {
     return true;
   }
 
+  if (
+    matchContext.targetLabel !== undefined &&
+    getControlLabel(element) !== matchContext.targetLabel
+  ) {
+    return false;
+  }
+
+  if (!matchContext.ancestorSelector) {
+    return true;
+  }
+
   const ancestor = element.closest(matchContext.ancestorSelector);
 
   if (!ancestor) {
@@ -667,6 +953,16 @@ function matchesTargetContext(element, matchContext) {
       (condition.matchPrefix === undefined || text.startsWith(condition.matchPrefix))
     );
   });
+}
+
+function getControlLabel(element) {
+  return (
+    element.value ||
+    element.textContent ||
+    element.getAttribute("aria-label") ||
+    element.title ||
+    ""
+  ).trim();
 }
 
 // 依最外層座標找元素；遇到同源 iframe 會往內找，跨域 iframe 則回傳 iframe 本身交給 clickAtCursor 轉發。

@@ -59,6 +59,163 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         return true;
     }
+    else if (msg.type === 'CLICKY_MAIN_WORLD_EVENT') {
+        if (
+            !sender.tab?.id ||
+            !msg.marker ||
+            !msg.locator?.selector ||
+            !['hover', 'click'].includes(msg.eventType)
+        ) {
+            sendResponse({ ok: false, error: 'Main World 事件參數不完整。' });
+            return;
+        }
+
+        const runMainWorldEvent = (searchNestedDocuments) => chrome.scripting.executeScript({
+            target: searchNestedDocuments
+                ? { tabId: sender.tab.id, frameIds: [0] }
+                : { tabId: sender.tab.id, allFrames: true },
+            world: 'MAIN',
+            args: [msg.marker, msg.eventType, msg.locator, searchNestedDocuments],
+            func: (marker, eventType, locator, searchNestedDocuments) => {
+                const getLabel = (element) => (
+                    element.value ||
+                    element.textContent ||
+                    element.getAttribute('aria-label') ||
+                    element.title ||
+                    ''
+                ).trim();
+
+                const matchesLocator = (element) => {
+                    if (locator.matchText !== undefined && element.textContent.trim() !== locator.matchText) {
+                        return false;
+                    }
+
+                    if (locator.matchPrefix !== undefined && !element.textContent.trim().startsWith(locator.matchPrefix)) {
+                        return false;
+                    }
+
+                    const context = locator.matchContext;
+
+                    if (context?.targetLabel !== undefined && getLabel(element) !== context.targetLabel) {
+                        return false;
+                    }
+
+                    if (!context?.ancestorSelector) {
+                        return true;
+                    }
+
+                    const ancestor = element.closest(context.ancestorSelector);
+
+                    if (!ancestor) {
+                        return false;
+                    }
+
+                    return (context.descendantMatches ?? []).every((condition) => {
+                        const descendant = ancestor.querySelector(condition.selector);
+                        const text = descendant?.textContent.trim();
+
+                        return Boolean(descendant) &&
+                            (condition.matchText === undefined || text === condition.matchText) &&
+                            (condition.matchPrefix === undefined || text.startsWith(condition.matchPrefix));
+                    });
+                };
+
+                const findInDocument = (doc, includeNested) => {
+                    const marked = doc.querySelector(`[data-clicky-main-target="${CSS.escape(marker)}"]`);
+
+                    if (marked) {
+                        return { element: marked, source: 'marker' };
+                    }
+
+                    for (const candidate of doc.querySelectorAll(locator.selector)) {
+                        if (matchesLocator(candidate)) {
+                            return { element: candidate, source: 'locator' };
+                        }
+                    }
+
+                    if (includeNested) {
+                        for (const frame of doc.querySelectorAll('iframe, frame')) {
+                            try {
+                                const found = frame.contentDocument && findInDocument(frame.contentDocument, true);
+                                if (found) return found;
+                            } catch {
+                                // Chrome injects separately into accessible cross-origin frames.
+                            }
+                        }
+                    }
+
+                    return null;
+                };
+
+                const found = findInDocument(document, searchNestedDocuments);
+                const element = found?.element;
+
+                if (!element) {
+                    return { ok: false, error: 'Main World 找不到目標元素。' };
+                }
+
+                const pageJQuery = globalThis.jQuery;
+
+                if (eventType === 'click') {
+                    if (typeof pageJQuery === 'function') {
+                        pageJQuery(element).trigger('click');
+                        return { ok: true, method: 'jquery-trigger-click', source: found.source };
+                    }
+
+                    element.click();
+                    return { ok: true, method: 'native-click', source: found.source };
+                }
+
+                const hoverTargets = [element, element.querySelector?.('.class_title')].filter(Boolean);
+
+                if (typeof pageJQuery === 'function') {
+                    for (const target of hoverTargets) {
+                        pageJQuery(target)
+                            .trigger('mouseenter')
+                            .trigger('mouseover')
+                            .trigger('mousemove');
+                    }
+                    return { ok: true, method: 'jquery-trigger-hover', source: found.source };
+                }
+
+                for (const target of hoverTargets) {
+                    const rect = target.getBoundingClientRect();
+                    const options = {
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: rect.left + rect.width / 2,
+                        clientY: rect.top + rect.height / 2
+                    };
+                    target.dispatchEvent(new MouseEvent('mouseover', options));
+                    target.dispatchEvent(new MouseEvent('mouseenter', { ...options, bubbles: false }));
+                    target.dispatchEvent(new MouseEvent('mousemove', options));
+                }
+
+                return { ok: true, method: 'native-hover', source: found.source };
+            }
+        });
+
+        runMainWorldEvent(false)
+            .then(async (results) => {
+                const directSuccess = results.find((entry) => entry.result?.ok);
+
+                if (directSuccess) {
+                    return directSuccess.result;
+                }
+
+                const nestedResults = await runMainWorldEvent(true);
+                const nestedSuccess = nestedResults.find((entry) => entry.result?.ok);
+
+                return nestedSuccess?.result ?? {
+                    ok: false,
+                    error: `Main World 已掃描 ${results.length} 個 Chrome frame 與同源 nested documents，仍找不到目標元素。`
+                };
+            })
+            .then(sendResponse)
+            .catch((error) => sendResponse({ ok: false, error: String(error) }));
+
+        return true;
+    }
     else if (msg.type === 'ASK_AI') {
         const aiPrompt = `使用者語音指令: "${msg.transcript}"\n畫面按鈕資訊: ${JSON.stringify(msg.uiInfo)}\n請根據指令判斷使用者想點擊哪個按鈕，並嚴格只回傳 JSON 格式，例如 {"x": 270, "y": 190}，不要任何其他文字或 markdown 標籤。`;
 

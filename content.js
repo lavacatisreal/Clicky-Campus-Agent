@@ -402,11 +402,16 @@ function doActualClick(el, { skipClick = false } = {}) {
 }
 
 function revealClickTarget(element) {
-  const menu = element.closest?.('.append_menu');
   const row = element.closest?.('li[sno]');
+  const menu = element.closest?.('.append_menu') ?? row?.querySelector('.append_menu');
 
   if (row) {
     hoverElement(row);
+
+    const courseTitle = row.querySelector('.class_title');
+    if (courseTitle) {
+      hoverElement(courseTitle);
+    }
   }
 
   if (menu && getComputedStyle(menu).display === 'none') {

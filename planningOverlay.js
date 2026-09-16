@@ -1243,7 +1243,14 @@
     } else if (state.stage === Stage.HANDOFF) {
       elements.progressLabel.textContent = `已完成 ${completed} / ${total} 步 · 在新分頁繼續`;
     } else if (waitingIndex >= 0) {
-      elements.progressLabel.textContent = `第 ${waitingIndex + 1} / ${total} 步：等待按 W 確認`;
+      const waitingStep = steps[waitingIndex];
+      const waitingTexts = {
+        hover: "等待滑鼠移入課程列",
+        userClick: "等待真實滑鼠點擊",
+        confirm: "等待按 W 確認"
+      };
+      const waitingText = waitingTexts[waitingStep.waitingKind] ?? waitingTexts.confirm;
+      elements.progressLabel.textContent = `第 ${waitingIndex + 1} / ${total} 步：${waitingText}`;
     } else if (runningIndex >= 0) {
       elements.progressLabel.textContent = `正在執行第 ${runningIndex + 1} / ${total} 步`;
     } else if (completed > 0) {
@@ -1259,7 +1266,8 @@
     elements.steps.innerHTML = (plan?.steps ?? [])
       .map((step) => {
         const status = step.status ?? "pending";
-        const marks = { completed: "✓", running: "●", waiting: "W", error: "!" };
+        const waitingMark = ["hover", "userClick"].includes(step.waitingKind) ? "…" : "W";
+        const marks = { completed: "✓", running: "●", waiting: waitingMark, error: "!" };
 
         return `
           <li class="step ${escapeHtml(status)}">
@@ -1347,7 +1355,11 @@
 
     const steps = state.plan.steps.map((step, index) => {
       if (index === stepIndex) {
-        return { ...step, status };
+        return {
+          ...step,
+          status,
+          waitingKind: status === "waiting" ? (detail.waitingKind ?? "confirm") : undefined
+        };
       }
 
       if ((status === "running" || status === "waiting") && index < stepIndex) {

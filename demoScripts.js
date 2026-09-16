@@ -122,22 +122,8 @@ const CLICKY_DEMO_SCENARIOS = [
         ]
       },
       {
-        title: "辨識資工系的計算機概論課程",
-        actions: [
-          {
-            type: "move",
-            selector: "li[sno] span.class_no",
-            matchPrefix: "CE",
-            matchContext: {
-              ancestorSelector: "li[sno]",
-              descendantMatches: [
-                { selector: "span.class_no", matchPrefix: "CE" },
-                { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
-              ]
-            },
-            timeout: 15000
-          }
-        ]
+        title: "辨識資工系（課程代號為 CE 開頭）的計算機概論課程",
+        actions: []
       },
       {
         title: "點擊登記加選",
@@ -152,7 +138,7 @@ const CLICKY_DEMO_SCENARIOS = [
                 { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
               ]
             },
-            resultSelector: 'li[sno] .append_menu img#fm_register, li[sno] .append_menu img[title="登記加選"], li[sno] .append_menu img[src*="select_register"]',
+            resultSelector: "li[sno]",
             resultMatchContext: {
               ancestorSelector: "li[sno]",
               descendantMatches: [
@@ -166,15 +152,19 @@ const CLICKY_DEMO_SCENARIOS = [
           {
             type: "mainWorldClick",
             selector: 'li[sno] .append_menu img#fm_register, li[sno] .append_menu img[title="登記加選"], li[sno] .append_menu img[src*="select_register"]',
+            useRetainedTarget: false,
             duration: 300,
             resultSelector: '#dlgSignPassword, .ui-dialog[aria-describedby="dlgSignPassword"]',
             timeout: 15000,
+            prompt: "按 W 確認點擊登記加選",
+            autoPrompt: "正在點擊登記加選…",
             matchContext: {
               ancestorSelector: "li[sno]",
               descendantMatches: [
                 { selector: "span.class_no", matchPrefix: "CE" },
                 { selector: "span.class_title", matchText: "計算機概論 Ⅰ" }
-              ]
+              ],
+              allowHidden: true
             },
             message: "已在網站頁面觸發登記加選",
             timeoutMessage: "Main World 點擊後仍未開啟課程加選確認視窗。"
@@ -182,7 +172,7 @@ const CLICKY_DEMO_SCENARIOS = [
         ]
       },
       {
-        title: "確認送出 CE 課程加選",
+        title: "確認送出課程加選",
         actions: [
           {
             type: "confirmClick",
@@ -191,8 +181,9 @@ const CLICKY_DEMO_SCENARIOS = [
             matchContext: {
               targetLabel: "加選"
             },
-            prompt: "按 W 確認送出 CE 課程加選",
-            autoPrompt: "正在確認送出 CE 課程加選…",
+            closeDialog: true,
+            prompt: "按 W 確認送出課程加選",
+            autoPrompt: "正在確認送出課程加選…",
             timeout: 15000
           }
         ]

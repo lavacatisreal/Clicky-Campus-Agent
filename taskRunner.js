@@ -301,9 +301,9 @@ function finishWithHandoff(run) {
 let pendingConfirm = null;
 
 // 回傳 "key"：使用者按 W 並已點擊；"auto"：等待中切換成自動模式，由呼叫端自動點擊。
-function waitForConfirm(run, element, beforeClick) {
+function waitForConfirm(run, element, beforeClick, clickAction = () => clickAtCursor(element)) {
   return new Promise((resolve, reject) => {
-    pendingConfirm = { element, beforeClick, resolve, reject };
+    pendingConfirm = { element, beforeClick, clickAction, resolve, reject };
   }).then((how) => {
     if (run.isCancelled()) {
       throw new TaskCancelledError();
@@ -319,12 +319,13 @@ function confirmPendingClick() {
     return false;
   }
 
-  const { element, beforeClick, resolve } = pendingConfirm;
+  const { beforeClick, clickAction, resolve, reject } = pendingConfirm;
   pendingConfirm = null;
 
-  beforeClick?.();
-  clickAtCursor(element);
-  resolve("key");
+  Promise.resolve(beforeClick?.())
+    .then(() => clickAction())
+    .then(() => resolve("key"))
+    .catch(reject);
 
   return true;
 }
@@ -457,10 +458,36 @@ async function runAction(run, action, progress) {
     }
 
     case "mainWorldClick": {
-      const target = takeRetainedTarget(run, { useRetainedTarget: true }) ??
+      const target = (action.useRetainedTarget === false
+        ? null
+        : takeRetainedTarget(run, { useRetainedTarget: true })) ??
         await resolveActionTarget(run, action);
       await moveCursorTo(run, target, action.duration);
-      const result = await invokeMainWorldEvent(target.element, "click", action);
+
+      let result;
+
+      if (clickModeSetting.value === "auto") {
+        result = await invokeMainWorldEvent(target.element, "click", action);
+      } else {
+        const prompt = action.prompt ?? "按 W 確認點擊";
+        releaseKeyboardFocus(target.element);
+        emitPlanningOverlayEvent("clicky:step-update", {
+          stepIndex: run.stepIndex,
+          status: "waiting",
+          waitingKind: "confirm",
+          message: prompt
+        });
+        showSpeechBox(prompt, { tone: "success" });
+
+        await waitForConfirm(
+          run,
+          target.element,
+          () => saveTaskProgress(progress),
+          async () => {
+            result = await invokeMainWorldEvent(target.element, "click", action);
+          }
+        );
+      }
 
       emitPlanningOverlayEvent("clicky:step-update", {
         stepIndex: run.stepIndex,
@@ -503,6 +530,7 @@ async function runAction(run, action, progress) {
         await autoClick(run, action, target, progress);
       } else {
         const prompt = action.prompt ?? "按 W 確認點擊";
+        releaseKeyboardFocus(target.element);
         emitPlanningOverlayEvent("clicky:step-update", {
           stepIndex: run.stepIndex,
           status: "waiting",
@@ -512,7 +540,14 @@ async function runAction(run, action, progress) {
         showSpeechBox(prompt, { tone: "success" });
 
         // 等待期間可能很久，確認當下重新保存進度，避免新分頁以為進度過期。
-        const how = await waitForConfirm(run, target.element, () => saveTaskProgress(progress));
+        const how = await waitForConfirm(
+          run,
+          target.element,
+          () => saveTaskProgress(progress),
+          action.mainWorld
+            ? () => invokeMainWorldEvent(target.element, "click", action)
+            : undefined
+        );
 
         if (how === "auto") {
           await autoClick(run, action, target, progress);
@@ -566,7 +601,8 @@ async function invokeMainWorldEvent(element, eventType, action) {
         selector: action.selector,
         matchText: action.matchText,
         matchPrefix: action.matchPrefix,
-        matchContext: action.matchContext
+        matchContext: action.matchContext,
+        closeDialog: Boolean(action.closeDialog)
       }
     });
 
@@ -1004,6 +1040,17 @@ function isInViewport(target) {
 
 function isTextInput(element) {
   return Boolean(element) && (element.tagName === "INPUT" || element.tagName === "TEXTAREA");
+}
+
+function releaseKeyboardFocus(targetElement) {
+  const doc = targetElement?.ownerDocument ?? document;
+  const activeElement = doc.activeElement;
+
+  if (activeElement && (activeElement.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName))) {
+    activeElement.blur();
+  }
+
+  doc.body?.focus();
 }
 
 async function typeText(run, element, text, charDelayMs = DEFAULT_CHAR_DELAY_MS) {

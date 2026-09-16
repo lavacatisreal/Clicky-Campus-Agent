@@ -159,6 +159,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 if (eventType === 'click') {
                     if (typeof pageJQuery === 'function') {
                         pageJQuery(element).trigger('click');
+
+                        if (locator.closeDialog) {
+                            const dialogContent = element.closest('.ui-dialog-content');
+
+                            if (dialogContent && typeof pageJQuery(dialogContent).dialog === 'function') {
+                                pageJQuery(dialogContent).dialog('close');
+                            }
+                        }
+
                         return { ok: true, method: 'jquery-trigger-click', source: found.source };
                     }
 
